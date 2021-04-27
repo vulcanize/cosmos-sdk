@@ -294,6 +294,7 @@ const (
 	StoreTypeMulti StoreType = iota
 	StoreTypeDB
 	StoreTypeIAVL
+	StoreTypeDecoupled
 	StoreTypeTransient
 	StoreTypeMemory
 	StoreTypeSMT
