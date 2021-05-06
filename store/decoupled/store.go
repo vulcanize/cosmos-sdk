@@ -5,14 +5,18 @@ import (
 	"io"
 	"sync"
 
+	// abci "github.com/tendermint/tendermint/abci/types"
+	dbm "github.com/tendermint/tm-db"
+
 	"github.com/cosmos/cosmos-sdk/store/cachekv"
 	"github.com/cosmos/cosmos-sdk/store/iavl"
 	"github.com/cosmos/cosmos-sdk/store/tracekv"
 	"github.com/cosmos/cosmos-sdk/store/types"
 	// "github.com/cosmos/cosmos-sdk/telemetry"
+)
 
-	// abci "github.com/tendermint/tendermint/abci/types"
-	dbm "github.com/tendermint/tm-db"
+const (
+	defaultIAVLCacheSize = 10000
 )
 
 var (
@@ -31,30 +35,51 @@ var (
 
 // A store which uses separate data structures for state storage (SS) and state commitments (SC)
 type Store struct {
-	// State commitments layer
-	sc types.CommitKVStore
 	// Direct KV mapping (SS)
 	data dbm.DB
 	// Inverted index of SC values to SS keys
 	inv dbm.DB
-
-	mtx sync.RWMutex
+	// State commitments layer
+	sc types.CommitKVStore
+	// Mutex needed to lock stores in tandem during writes
+	mtx sync.Mutex
 }
 
 // TODO:
-// version tracking, construction?
-// separate backing DB?
-func NewStore(db dbm.DB, id types.CommitID, lazyLoading bool) (*Store, error) {
-	sc, err := iavl.LoadStore(db, id, lazyLoading)
+// version tracking
+// constructors?
+// separate backing DBs for SC/SS?
+
+// Create a new, empty store
+func NewStore(db dbm.DB) (*Store, error) {
+	// tree, err := iavl.NewMutableTree(db, defaultIAVLCacheSize)
+	sc, err := iavl.LoadStore(db, types.CommitID{}, false)
 	if err != nil {
 		return nil, err
 	}
+	return newStore(db, sc)
+}
+
+// Create a new store from SC store and DB
+func newStore(db dbm.DB, sc types.CommitKVStore) (*Store, error) {
 	return &Store{
 		sc:   sc,
 		data: dbm.NewPrefixDB(db, dataPrefix),
 		inv:  dbm.NewPrefixDB(db, indexPrefix),
 	}, nil
 }
+
+// func LoadStore(db dbm.DB, id types.CommitID, lazyLoading bool) (*Store, error) {
+// 	sc, err := iavl.LoadStore(db, id, lazyLoading)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	return &Store{
+// 		sc:   sc,
+// 		data: dbm.NewPrefixDB(db, dataPrefix),
+// 		inv:  dbm.NewPrefixDB(db, indexPrefix),
+// 	}, nil
+// }
 
 // implement KVStore
 func (s *Store) Get(key []byte) []byte {
@@ -137,7 +162,6 @@ func (s *Store) CacheWrapWithTrace(w io.Writer, tc types.TraceContext) types.Cac
 	return cachekv.NewStore(tracekv.NewStore(s, w, tc))
 }
 
-// CommitKVStore = Committer + KVStore
 // implement Committer
 func (s *Store) Commit() types.CommitID {
 	return s.sc.Commit()
@@ -155,7 +179,11 @@ func (s *Store) GetPruning() types.PruningOptions {
 	return types.PruningOptions{}
 }
 
+// implement StoreWithInitialVersion
+func (s *Store) SetInitialVersion(version int64) {
+	// TODO - should StoreWithInitialVersion include CommitKVStore?
+	s.sc.(types.StoreWithInitialVersion).SetInitialVersion(version)
+}
+
 // TODO:
-// SetPruning, GetPruning
 // Query
-// SetInitialVersion
