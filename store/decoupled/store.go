@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	// abci "github.com/tendermint/tendermint/abci/types"
+	abci "github.com/tendermint/tendermint/abci/types"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/cosmos/cosmos-sdk/store/cachekv"
@@ -34,6 +35,8 @@ var (
 )
 
 // A store which uses separate data structures for state storage (SS) and state commitments (SC)
+// TODO:
+// DB interface and SC store must support versioning
 type Store struct {
 	// Direct KV mapping (SS)
 	data dbm.DB
@@ -57,29 +60,26 @@ func NewStore(db dbm.DB) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newStore(db, sc)
+	return newStore(db, sc), nil
+}
+
+// TODO: review logic, motivation for initial version - desired for this store? lazy loading?
+func LoadStore(db dbm.DB, id types.CommitID, initialVersion uint64) (types.CommitKVStore, error) {
+	sc, err := iavl.LoadStoreWithInitialVersion(db, id, false, initialVersion)
+	if err != nil {
+		return nil, err
+	}
+	return newStore(db, sc), nil
 }
 
 // Create a new store from SC store and DB
-func newStore(db dbm.DB, sc types.CommitKVStore) (*Store, error) {
+func newStore(db dbm.DB, sc types.CommitKVStore) *Store {
 	return &Store{
 		sc:   sc,
 		data: dbm.NewPrefixDB(db, dataPrefix),
 		inv:  dbm.NewPrefixDB(db, indexPrefix),
-	}, nil
+	}
 }
-
-// func LoadStore(db dbm.DB, id types.CommitID, lazyLoading bool) (*Store, error) {
-// 	sc, err := iavl.LoadStore(db, id, lazyLoading)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	return &Store{
-// 		sc:   sc,
-// 		data: dbm.NewPrefixDB(db, dataPrefix),
-// 		inv:  dbm.NewPrefixDB(db, indexPrefix),
-// 	}, nil
-// }
 
 // implement KVStore
 func (s *Store) Get(key []byte) []byte {
@@ -187,3 +187,26 @@ func (s *Store) SetInitialVersion(version int64) {
 
 // TODO:
 // Query
+// AtVersion, DeleteVersion etc.
+
+func (s *Store) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
+	return s.sc.(types.Queryable).Query(req)
+}
+
+// DeleteVersions deletes a series of versions from the MutableTree.
+func (s *Store) DeleteVersions(versions ...int64) error {
+	s.sc.(*iavl.Store).DeleteVersions(versions...)
+
+	// TODO: data pruning
+
+	return nil
+}
+
+func (s *Store) AtVersion(version int64) (*Store, error) {
+	versionData := s.data //.AtVersion(version)
+	versionSC, err := s.sc.(*iavl.Store).GetImmutable(version)
+	if err != nil {
+		return nil, err
+	}
+	return newStore(versionData, versionSC), nil
+}

@@ -68,6 +68,7 @@ const (
 	StoreTypeMulti     = types.StoreTypeMulti
 	StoreTypeDB        = types.StoreTypeDB
 	StoreTypeIAVL      = types.StoreTypeIAVL
+	StoreTypeDecoupled = types.StoreTypeDecoupled
 	StoreTypeTransient = types.StoreTypeTransient
 	StoreTypeMemory    = types.StoreTypeMemory
 )

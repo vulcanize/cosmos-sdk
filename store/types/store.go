@@ -294,7 +294,7 @@ const (
 	StoreTypeMulti StoreType = iota
 	StoreTypeDB
 	StoreTypeIAVL
-	StoreTypeDecoupled
+	StoreTypeDecoupled // TODO: StoreTypeMerkle? - if deprecating all standalone merkle stores
 	StoreTypeTransient
 	StoreTypeMemory
 	StoreTypeSMT

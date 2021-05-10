@@ -21,6 +21,7 @@ import (
 	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
 	"github.com/cosmos/cosmos-sdk/store/cachemulti"
 	"github.com/cosmos/cosmos-sdk/store/dbadapter"
+	"github.com/cosmos/cosmos-sdk/store/decoupled"
 	"github.com/cosmos/cosmos-sdk/store/iavl"
 	"github.com/cosmos/cosmos-sdk/store/listenkv"
 	"github.com/cosmos/cosmos-sdk/store/mem"
@@ -399,12 +400,13 @@ func (rs *Store) pruneStores() {
 	}
 
 	for key, store := range rs.stores {
-		if store.GetStoreType() == types.StoreTypeIAVL {
+		if store.GetStoreType() == types.StoreTypeDecoupled {
 			// If the store is wrapped with an inter-block cache, we must first unwrap
 			// it to get the underlying IAVL store.
 			store = rs.GetCommitKVStore(key)
 
-			if err := store.(*iavl.Store).DeleteVersions(rs.pruneHeights...); err != nil {
+			// TODO: refactor into interface? - VersionedStore.DeleteVersions()
+			if err := store.(*decoupled.Store).DeleteVersions(rs.pruneHeights...); err != nil {
 				if errCause := errors.Cause(err); errCause != nil && errCause != iavltree.ErrVersionDoesNotExist {
 					panic(err)
 				}
@@ -448,19 +450,20 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 	cachedStores := make(map[types.StoreKey]types.CacheWrapper)
 	for key, store := range rs.stores {
 		switch store.GetStoreType() {
-		case types.StoreTypeIAVL:
+		case types.StoreTypeDecoupled:
 			// If the store is wrapped with an inter-block cache, we must first unwrap
-			// it to get the underlying IAVL store.
+			// it to get the underlying persistent store.
 			store = rs.GetCommitKVStore(key)
 
-			// Attempt to lazy-load an already saved IAVL store version. If the
+			// Attempt to load an already saved store version. If the
 			// version does not exist or is pruned, an error should be returned.
-			iavlStore, err := store.(*iavl.Store).GetImmutable(version)
+			versionStore, err := store.(*decoupled.Store).AtVersion(version)
+			// TODO: refactor both to VersionedStore.AtVersion?
 			if err != nil {
 				return nil, err
 			}
 
-			cachedStores[key] = iavlStore
+			cachedStores[key] = versionStore
 
 		default:
 			cachedStores[key] = store
@@ -578,7 +581,7 @@ func (rs *Store) SetInitialVersion(version int64) error {
 	// Loop through all the stores, if it's an IAVL store, then set initial
 	// version on it.
 	for key, store := range rs.stores {
-		if store.GetStoreType() == types.StoreTypeIAVL {
+		if store.GetStoreType() == types.StoreTypeDecoupled {
 			// If the store is wrapped with an inter-block cache, we must first unwrap
 			// it to get the underlying IAVL store.
 			store = rs.GetCommitKVStore(key)
@@ -853,14 +856,14 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 		panic("recursive MultiStores not yet supported")
 
 	case types.StoreTypeIAVL:
+		// panic?
+		panic("non-decoupled IAVL store is deprecated")
+
+	case types.StoreTypeDecoupled:
 		var store types.CommitKVStore
 		var err error
 
-		if params.initialVersion == 0 {
-			store, err = iavl.LoadStore(db, id, rs.lazyLoading)
-		} else {
-			store, err = iavl.LoadStoreWithInitialVersion(db, id, rs.lazyLoading, params.initialVersion)
-		}
+		store, err = decoupled.LoadStore(db, id, params.initialVersion)
 
 		if err != nil {
 			return nil, err
