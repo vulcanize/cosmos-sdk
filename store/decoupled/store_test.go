@@ -17,8 +17,7 @@ var (
 func newStoreWithData(t *testing.T, db dbm.DB, storeData map[string]string) (*Store, types.CommitID) {
 	sc, err := iavl.LoadStore(db, types.CommitID{}, false)
 	require.NoError(t, err)
-	store, err := newStore(db, sc)
-	require.NoError(t, err)
+	store := newStore(db, sc)
 
 	for k, v := range storeData {
 		store.Set([]byte(k), []byte(v))
