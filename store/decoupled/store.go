@@ -119,18 +119,14 @@ func (s *Store) Delete(key []byte) {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
 
-	s.sc.Delete(key)
-
-	defer func() {
-		_ = s.data.Delete(key)
-	}()
-
-	value, err := s.data.Get(key)
+	kvHash := s.sc.Get(key)
+	_, err := s.data.Get(key)
 	if err != nil {
 		panic(err.Error())
 	}
-	kvHash := sha256.Sum256(append(key, value...))
+	s.sc.Delete(key)
 	_ = s.inv.Delete(kvHash[:])
+	_ = s.data.Delete(key)
 }
 
 func (s *Store) Iterator(start, end []byte) types.Iterator {
