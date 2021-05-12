@@ -14,16 +14,14 @@ var (
 	cacheSize = 100
 )
 
-func newStoreWithData(t *testing.T, db dbm.DB, storeData map[string]string) (*Store, types.CommitID) {
+func newStoreWithData(t *testing.T, db dbm.DB, storeData map[string]string) *Store {
 	sc := newSCStore(t, db)
 	store := newStore(db, sc)
 
 	for k, v := range storeData {
 		store.Set([]byte(k), []byte(v))
 	}
-	id := sc.Commit()
-
-	return store, id
+	return store
 }
 
 func newSCStore(t *testing.T, db dbm.DB) types.CommitKVStore {
@@ -38,7 +36,7 @@ func TestGetSetHasDelete(t *testing.T) {
 		"hello": "goodbye",
 		"aloha": "shalom",
 	}
-	store, _ := newStoreWithData(t, db, storeData)
+	store := newStoreWithData(t, db, storeData)
 
 	key := "hello"
 
@@ -61,7 +59,7 @@ func TestGetSetHasDelete(t *testing.T) {
 }
 
 func TestIterators(t *testing.T) {
-	store, _ := newStoreWithData(t, dbm.NewMemDB(), map[string]string{
+	store := newStoreWithData(t, dbm.NewMemDB(), map[string]string{
 		string([]byte{0x00}):       "0",
 		string([]byte{0x00, 0x00}): "0 0",
 		string([]byte{0x00, 0x01}): "0 1",
@@ -145,4 +143,17 @@ func TestBucketsAreIndependent(t *testing.T) {
 		require.False(t, store.Has(dbiter.Key()), "Index key is present in store's data bucket")
 	}
 	dbiter.Close()
+}
+
+func TestMerkleRoot(t *testing.T) {
+	store := newStoreWithData(t, dbm.NewMemDB(), nil)
+	idNew := store.Commit()
+	store.Set([]byte{0x00}, []byte("a"))
+	idOne := store.Commit()
+	require.Equal(t, idNew.Version+1, idOne.Version)
+	require.NotEqual(t, idNew.Hash, idOne.Hash)
+
+	store.Delete([]byte{0x00})
+	idEmptied := store.Commit()
+	require.Equal(t, idNew.Hash, idEmptied.Hash)
 }
