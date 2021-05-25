@@ -244,6 +244,12 @@ type CommitKVStore interface {
 	KVStore
 }
 
+type VersionedKVStore interface {
+	CommitKVStore
+	AtVersion(int64) (KVStore, error)
+	VersionExists(int64) bool
+}
+
 //----------------------------------------
 // CacheWrap
 

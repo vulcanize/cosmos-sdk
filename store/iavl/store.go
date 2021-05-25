@@ -84,6 +84,23 @@ func UnsafeNewStore(tree *iavl.MutableTree) *Store {
 	}
 }
 
+// LoadVersionView returns an IAVL Store as a KVStore setting its initialVersion
+// to the one given. Internally, it will load the store's version (id) from the
+// provided DB. An error is returned if the version fails to load, or if called with a positive
+// version on an empty tree.
+func LoadVersionView(db dbm.DB, version int64, initialVersion uint64) (types.KVStore, error) {
+	tree, err := iavl.NewMutableTreeWithOpts(db, defaultIAVLCacheSize, &iavl.Options{InitialVersion: initialVersion})
+	if err != nil {
+		return nil, err
+	}
+	_, err = tree.LazyLoadVersion(version)
+	if err != nil {
+		return nil, err
+	}
+	return (&Store{tree: tree}).GetImmutable(version)
+	// return &Store{tree: tree}, nil
+}
+
 // GetImmutable returns a reference to a new store backed by an immutable IAVL
 // tree at a specific version (height) without any pruning options. This should
 // be used for querying and iteration only. If the version does not exist or has
@@ -95,6 +112,26 @@ func (st *Store) GetImmutable(version int64) (*Store, error) {
 	}
 
 	iTree, err := st.tree.GetImmutable(version)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Store{
+		tree: &immutableTree{iTree},
+	}, nil
+}
+
+// AtVersion returns a reference to a new store backed by an immutable IAVL
+// tree at a specific version (height) without any pruning options. This should
+// be used for querying and iteration only. If the version does not exist or has
+// been pruned, an error is returned.
+// Any mutable operations executed will result in a panic.
+func (st *Store) AtVersion(version int64) (types.KVStore, error) {
+	if !st.VersionExists(int64(version)) {
+		return nil, fmt.Errorf("version does not exist: %v", version)
+	}
+
+	iTree, err := st.tree.GetImmutable(int64(version))
 	if err != nil {
 		return nil, err
 	}
@@ -266,6 +303,18 @@ func getHeight(tree Tree, req abci.RequestQuery) int64 {
 		}
 	}
 	return height
+}
+
+func (st *Store) GetProof(key []byte, exists bool) *tmcrypto.ProofOps {
+	mtree, ok := st.tree.(*iavl.MutableTree)
+	if !ok {
+		mtree = &iavl.MutableTree{
+			ImmutableTree: st.tree.(*immutableTree).ImmutableTree,
+		}
+	}
+
+	// get proof from tree and convert to merkle.Proof before adding to result
+	return getProofFromTree(mtree, key, exists)
 }
 
 // Query implements ABCI interface, allows queries
