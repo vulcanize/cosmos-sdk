@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
+	"github.com/tendermint/tm-db/memdb"
 
 	"github.com/cosmos/cosmos-sdk/store/iavl"
 	"github.com/cosmos/cosmos-sdk/store/types"
@@ -31,7 +32,7 @@ func newSCStore(t *testing.T, db dbm.DB) types.CommitKVStore {
 }
 
 func TestGetSetHasDelete(t *testing.T) {
-	db := dbm.NewMemDB()
+	db := memdb.NewDB()
 	storeData := map[string]string{
 		"hello": "goodbye",
 		"aloha": "shalom",
@@ -59,7 +60,7 @@ func TestGetSetHasDelete(t *testing.T) {
 }
 
 func TestIterators(t *testing.T) {
-	store := newStoreWithData(t, dbm.NewMemDB(), map[string]string{
+	store := newStoreWithData(t, memdb.NewDB(), map[string]string{
 		string([]byte{0x00}):       "0",
 		string([]byte{0x00, 0x00}): "0 0",
 		string([]byte{0x00, 0x01}): "0 1",
@@ -107,11 +108,11 @@ func TestIterators(t *testing.T) {
 
 func TestBucketsAreIndependent(t *testing.T) {
 	// Use separate dbs for each bucket
-	dbsc := dbm.NewMemDB()
-	dbss := dbm.NewMemDB()
-	dbii := dbm.NewMemDB()
+	dbsc := memdb.NewDB()
+	dbss := memdb.NewDB()
+	dbii := memdb.NewDB()
 	sc := newSCStore(t, dbsc)
-	store := &Store{sc: sc, data: dbss, inv: dbii}
+	store := &Store{sc: sc, contents: dbss, inv: dbii}
 
 	storeData := map[string]string{
 		"test1": "a",
@@ -146,7 +147,7 @@ func TestBucketsAreIndependent(t *testing.T) {
 }
 
 func TestMerkleRoot(t *testing.T) {
-	store := newStoreWithData(t, dbm.NewMemDB(), nil)
+	store := newStoreWithData(t, memdb.NewDB(), nil)
 	idNew := store.Commit()
 	store.Set([]byte{0x00}, []byte("a"))
 	idOne := store.Commit()
