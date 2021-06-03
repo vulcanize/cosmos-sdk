@@ -7,15 +7,15 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/cosmos-sdk/store/decoupled"
+	"github.com/cosmos/cosmos-sdk/store/iavl"
 	"github.com/cosmos/cosmos-sdk/store/types"
 )
 
-func TestVerifyMerkleStoreQueryProof(t *testing.T) {
+func TestVerifyIAVLStoreQueryProof(t *testing.T) {
 	// Create main tree for testing.
 	db := dbm.NewMemDB()
-	mStore, err := decoupled.LoadStore(db, types.CommitID{}, 0)
-	store := mStore.(*decoupled.Store)
+	iStore, err := iavl.LoadStore(db, types.CommitID{}, false)
+	store := iStore.(*iavl.Store)
 	require.Nil(t, err)
 	store.Set([]byte("MYKEY"), []byte("MYVALUE"))
 	cid := store.Commit()
@@ -58,18 +58,18 @@ func TestVerifyMultiStoreQueryProof(t *testing.T) {
 	// Create main tree for testing.
 	db := dbm.NewMemDB()
 	store := NewStore(db)
-	merkleStoreKey := types.NewKVStoreKey("merkleStoreKey")
+	iavlStoreKey := types.NewKVStoreKey("iavlStoreKey")
 
-	store.MountStoreWithDB(merkleStoreKey, types.StoreTypeDecoupled, nil)
+	store.MountStoreWithDB(iavlStoreKey, types.StoreTypeIAVL, nil)
 	require.NoError(t, store.LoadVersion(0))
 
-	merkleStore := store.GetCommitStore(merkleStoreKey).(*decoupled.Store)
-	merkleStore.Set([]byte("MYKEY"), []byte("MYVALUE"))
+	iavlStore := store.GetCommitStore(iavlStoreKey).(*iavl.Store)
+	iavlStore.Set([]byte("MYKEY"), []byte("MYVALUE"))
 	cid := store.Commit()
 
 	// Get Proof
 	res := store.Query(abci.RequestQuery{
-		Path:  "/merkleStoreKey/key", // required path to get key/value+proof
+		Path:  "/iavlStoreKey/key", // required path to get key/value+proof
 		Data:  []byte("MYKEY"),
 		Prove: true,
 	})
@@ -77,23 +77,23 @@ func TestVerifyMultiStoreQueryProof(t *testing.T) {
 
 	// Verify proof.
 	prt := DefaultProofRuntime()
-	err := prt.VerifyValue(res.ProofOps, cid.Hash, "/merkleStoreKey/MYKEY", []byte("MYVALUE"))
+	err := prt.VerifyValue(res.ProofOps, cid.Hash, "/iavlStoreKey/MYKEY", []byte("MYVALUE"))
 	require.Nil(t, err)
 
 	// Verify proof.
-	err = prt.VerifyValue(res.ProofOps, cid.Hash, "/merkleStoreKey/MYKEY", []byte("MYVALUE"))
+	err = prt.VerifyValue(res.ProofOps, cid.Hash, "/iavlStoreKey/MYKEY", []byte("MYVALUE"))
 	require.Nil(t, err)
 
 	// Verify (bad) proof.
-	err = prt.VerifyValue(res.ProofOps, cid.Hash, "/merkleStoreKey/MYKEY_NOT", []byte("MYVALUE"))
+	err = prt.VerifyValue(res.ProofOps, cid.Hash, "/iavlStoreKey/MYKEY_NOT", []byte("MYVALUE"))
 	require.NotNil(t, err)
 
 	// Verify (bad) proof.
-	err = prt.VerifyValue(res.ProofOps, cid.Hash, "/merkleStoreKey/MYKEY/MYKEY", []byte("MYVALUE"))
+	err = prt.VerifyValue(res.ProofOps, cid.Hash, "/iavlStoreKey/MYKEY/MYKEY", []byte("MYVALUE"))
 	require.NotNil(t, err)
 
 	// Verify (bad) proof.
-	err = prt.VerifyValue(res.ProofOps, cid.Hash, "merkleStoreKey/MYKEY", []byte("MYVALUE"))
+	err = prt.VerifyValue(res.ProofOps, cid.Hash, "iavlStoreKey/MYKEY", []byte("MYVALUE"))
 	require.NotNil(t, err)
 
 	// Verify (bad) proof.
@@ -101,11 +101,11 @@ func TestVerifyMultiStoreQueryProof(t *testing.T) {
 	require.NotNil(t, err)
 
 	// Verify (bad) proof.
-	err = prt.VerifyValue(res.ProofOps, cid.Hash, "/merkleStoreKey/MYKEY", []byte("MYVALUE_NOT"))
+	err = prt.VerifyValue(res.ProofOps, cid.Hash, "/iavlStoreKey/MYKEY", []byte("MYVALUE_NOT"))
 	require.NotNil(t, err)
 
 	// Verify (bad) proof.
-	err = prt.VerifyValue(res.ProofOps, cid.Hash, "/merkleStoreKey/MYKEY", []byte(nil))
+	err = prt.VerifyValue(res.ProofOps, cid.Hash, "/iavlStoreKey/MYKEY", []byte(nil))
 	require.NotNil(t, err)
 }
 
@@ -113,19 +113,19 @@ func TestVerifyMultiStoreQueryProofAbsence(t *testing.T) {
 	// Create main tree for testing.
 	db := dbm.NewMemDB()
 	store := NewStore(db)
-	merkleStoreKey := types.NewKVStoreKey("merkleStoreKey")
+	iavlStoreKey := types.NewKVStoreKey("iavlStoreKey")
 
-	store.MountStoreWithDB(merkleStoreKey, types.StoreTypeDecoupled, nil)
+	store.MountStoreWithDB(iavlStoreKey, types.StoreTypeIAVL, nil)
 	err := store.LoadVersion(0)
 	require.NoError(t, err)
 
-	merkleStore := store.GetCommitStore(merkleStoreKey).(*decoupled.Store)
-	merkleStore.Set([]byte("MYKEY"), []byte("MYVALUE"))
-	cid := store.Commit() // Commit with empty merkle store.
+	iavlStore := store.GetCommitStore(iavlStoreKey).(*iavl.Store)
+	iavlStore.Set([]byte("MYKEY"), []byte("MYVALUE"))
+	cid := store.Commit() // Commit with empty iavl store.
 
 	// Get Proof
 	res := store.Query(abci.RequestQuery{
-		Path:  "/merkleStoreKey/key", // required path to get key/value+proof
+		Path:  "/iavlStoreKey/key", // required path to get key/value+proof
 		Data:  []byte("MYABSENTKEY"),
 		Prove: true,
 	})
@@ -133,7 +133,7 @@ func TestVerifyMultiStoreQueryProofAbsence(t *testing.T) {
 
 	// Verify proof.
 	prt := DefaultProofRuntime()
-	err = prt.VerifyAbsence(res.ProofOps, cid.Hash, "/merkleStoreKey/MYABSENTKEY")
+	err = prt.VerifyAbsence(res.ProofOps, cid.Hash, "/iavlStoreKey/MYABSENTKEY")
 	require.Nil(t, err)
 
 	// Verify (bad) proof.
@@ -143,6 +143,6 @@ func TestVerifyMultiStoreQueryProofAbsence(t *testing.T) {
 
 	// Verify (bad) proof.
 	prt = DefaultProofRuntime()
-	err = prt.VerifyValue(res.ProofOps, cid.Hash, "/merkleStoreKey/MYABSENTKEY", []byte(""))
+	err = prt.VerifyValue(res.ProofOps, cid.Hash, "/iavlStoreKey/MYABSENTKEY", []byte(""))
 	require.NotNil(t, err)
 }

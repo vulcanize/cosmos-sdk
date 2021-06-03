@@ -5,12 +5,12 @@ import (
 
 	"github.com/cosmos/iavl"
 	"github.com/stretchr/testify/require"
-	memdb "github.com/tendermint/tm-db/memdb"
+	dbm "github.com/tendermint/tm-db"
 )
 
 func TestImmutableTreePanics(t *testing.T) {
 	t.Parallel()
-	immTree := iavl.NewImmutableTree(memdb.NewDB(), 100)
+	immTree := iavl.NewImmutableTree(dbm.NewMemDB(), 100)
 	it := &immutableTree{immTree}
 	require.Panics(t, func() { it.Set([]byte{}, []byte{}) })
 	require.Panics(t, func() { it.Remove([]byte{}) })

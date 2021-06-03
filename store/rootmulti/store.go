@@ -21,7 +21,6 @@ import (
 	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
 	"github.com/cosmos/cosmos-sdk/store/cachemulti"
 	"github.com/cosmos/cosmos-sdk/store/dbadapter"
-	"github.com/cosmos/cosmos-sdk/store/decoupled"
 	"github.com/cosmos/cosmos-sdk/store/iavl"
 	"github.com/cosmos/cosmos-sdk/store/listenkv"
 	"github.com/cosmos/cosmos-sdk/store/mem"
@@ -400,13 +399,12 @@ func (rs *Store) pruneStores() {
 	}
 
 	for key, store := range rs.stores {
-		if store.GetStoreType() == types.StoreTypeDecoupled {
+		if store.GetStoreType() == types.StoreTypeIAVL {
 			// If the store is wrapped with an inter-block cache, we must first unwrap
 			// it to get the underlying IAVL store.
 			store = rs.GetCommitKVStore(key)
 
-			// TODO: refactor into interface? - VersionedStore.DeleteVersions()
-			if err := store.(*decoupled.Store).DeleteVersions(rs.pruneHeights...); err != nil {
+			if err := store.(*iavl.Store).DeleteVersions(rs.pruneHeights...); err != nil {
 				if errCause := errors.Cause(err); errCause != nil && errCause != iavltree.ErrVersionDoesNotExist {
 					panic(err)
 				}
@@ -450,20 +448,19 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 	cachedStores := make(map[types.StoreKey]types.CacheWrapper)
 	for key, store := range rs.stores {
 		switch store.GetStoreType() {
-		case types.StoreTypeDecoupled:
+		case types.StoreTypeIAVL:
 			// If the store is wrapped with an inter-block cache, we must first unwrap
-			// it to get the underlying persistent store.
+			// it to get the underlying IAVL store.
 			store = rs.GetCommitKVStore(key)
 
-			// Attempt to load an already saved store version. If the
+			// Attempt to lazy-load an already saved IAVL store version. If the
 			// version does not exist or is pruned, an error should be returned.
-			versionStore, err := store.(*decoupled.Store).AtVersion(version)
-			// TODO: refactor both to VersionedStore.AtVersion?
+			iavlStore, err := store.(*iavl.Store).GetImmutable(version)
 			if err != nil {
 				return nil, err
 			}
 
-			cachedStores[key] = versionStore
+			cachedStores[key] = iavlStore
 
 		default:
 			cachedStores[key] = store
@@ -495,7 +492,11 @@ func (rs *Store) GetStore(key types.StoreKey) types.Store {
 // NOTE: The returned KVStore may be wrapped in an inter-block cache if it is
 // set on the root store.
 func (rs *Store) GetKVStore(key types.StoreKey) types.KVStore {
-	store := rs.stores[key].(types.KVStore)
+	s := rs.stores[key]
+	if s == nil {
+		panic(fmt.Sprintf("store does not exist for key: %s", key.Name()))
+	}
+	store := s.(types.KVStore)
 
 	if rs.TracingEnabled() {
 		store = tracekv.NewStore(store, rs.traceWriter, rs.traceContext)
@@ -581,11 +582,11 @@ func (rs *Store) SetInitialVersion(version int64) error {
 	// Loop through all the stores, if it's an IAVL store, then set initial
 	// version on it.
 	for key, store := range rs.stores {
-		if store.GetStoreType() == types.StoreTypeDecoupled {
+		if store.GetStoreType() == types.StoreTypeIAVL {
 			// If the store is wrapped with an inter-block cache, we must first unwrap
 			// it to get the underlying IAVL store.
 			store = rs.GetCommitKVStore(key)
-			store.(types.StoreWithInitialVersion).SetInitialVersion(version)
+			store.(*iavl.Store).SetInitialVersion(version)
 		}
 	}
 
@@ -856,14 +857,14 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 		panic("recursive MultiStores not yet supported")
 
 	case types.StoreTypeIAVL:
-		// panic?
-		panic("non-decoupled IAVL store is deprecated")
-
-	case types.StoreTypeDecoupled:
 		var store types.CommitKVStore
 		var err error
 
-		store, err = decoupled.LoadStore(db, id, params.initialVersion)
+		if params.initialVersion == 0 {
+			store, err = iavl.LoadStore(db, id, rs.lazyLoading)
+		} else {
+			store, err = iavl.LoadStoreWithInitialVersion(db, id, rs.lazyLoading, params.initialVersion)
+		}
 
 		if err != nil {
 			return nil, err
@@ -879,7 +880,7 @@ func (rs *Store) loadCommitStoreFromParams(key types.StoreKey, id types.CommitID
 		return store, err
 
 	case types.StoreTypeDB:
-		return commitDBStoreAdapter{Store: dbadapter.Store{DB: db}}, nil
+		return commitDBStoreAdapter{Store: dbadapter.NewStore(db)}, nil
 
 	case types.StoreTypeTransient:
 		_, ok := key.(*types.TransientStoreKey)

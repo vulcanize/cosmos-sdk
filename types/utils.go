@@ -7,18 +7,17 @@ import (
 	"time"
 
 	dbm "github.com/tendermint/tm-db"
-	dbmeta "github.com/tendermint/tm-db/metadb"
 )
 
 var (
 	// This is set at compile time. Could be cleveldb, defaults is goleveldb.
 	DBBackend = ""
-	backend   = dbmeta.GoLevelDBBackend
+	backend   = dbm.GoLevelDBBackend
 )
 
 func init() {
 	if len(DBBackend) != 0 {
-		backend = dbmeta.BackendType(DBBackend)
+		backend = dbm.BackendType(DBBackend)
 	}
 }
 
@@ -93,7 +92,7 @@ func NewLevelDB(name, dir string) (db dbm.DB, err error) {
 		}
 	}()
 
-	return dbmeta.NewDB(name, backend, dir)
+	return dbm.NewDB(name, backend, dir)
 }
 
 // copy bytes

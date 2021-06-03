@@ -7,7 +7,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	db "github.com/tendermint/tm-db"
+	db "github.com/cosmos/cosmos-sdk/db"
 
 	"github.com/cosmos/cosmos-sdk/store/types"
 )

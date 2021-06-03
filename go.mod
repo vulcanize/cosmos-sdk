@@ -20,6 +20,7 @@ require (
 	github.com/golang/mock v1.4.4
 	github.com/golang/protobuf v1.5.2
 	github.com/golang/snappy v0.0.2 // indirect
+	github.com/google/btree v1.0.0 // indirect
 	github.com/gorilla/handlers v1.5.1
 	github.com/gorilla/mux v1.8.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0
@@ -65,6 +66,6 @@ replace google.golang.org/grpc => google.golang.org/grpc v1.33.2
 
 replace github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 
-replace github.com/tendermint/tm-db => /home/roy/vulcanize/repo/tm-db
+// replace github.com/tendermint/tm-db => /home/roy/vulcanize/repo/tm-db
 
 replace github.com/cosmos/iavl => /home/roy/vulcanize/repo/iavl

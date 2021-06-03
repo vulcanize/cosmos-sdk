@@ -72,7 +72,7 @@ func NewStore(
 	traceWriter io.Writer, traceContext types.TraceContext, listeners map[types.StoreKey][]types.WriteListener,
 ) Store {
 
-	return NewFromKVStore(dbadapter.Store{DB: db}, stores, keys, traceWriter, traceContext, listeners)
+	return NewFromKVStore(dbadapter.NewStore(db), stores, keys, traceWriter, traceContext, listeners)
 }
 
 func newCacheMultiStoreFromCMS(cms Store) Store {
@@ -173,13 +173,17 @@ func (cms Store) CacheMultiStoreWithVersion(_ int64) (types.CacheMultiStore, err
 
 // GetStore returns an underlying Store by key.
 func (cms Store) GetStore(key types.StoreKey) types.Store {
-	return cms.stores[key].(types.Store)
+	s := cms.stores[key]
+	if key == nil || s == nil {
+		panic(fmt.Sprintf("kv store with key %v has not been registered in stores", key))
+	}
+	return s.(types.Store)
 }
 
 // GetKVStore returns an underlying KVStore by key.
 func (cms Store) GetKVStore(key types.StoreKey) types.KVStore {
 	store := cms.stores[key]
-	if key == nil {
+	if key == nil || store == nil {
 		panic(fmt.Sprintf("kv store with key %v has not been registered in stores", key))
 	}
 	return store.(types.KVStore)
