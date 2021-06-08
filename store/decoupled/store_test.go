@@ -21,7 +21,7 @@ var (
 )
 
 func newStoreWithData(t *testing.T, db dbm.DB, storeData map[string]string) *Store {
-	store, err := loadStore(db, db, false)
+	store, err := NewStore(db)
 	if err != nil {
 		panic(err)
 	}
@@ -37,20 +37,18 @@ func newAlohaStore(t *testing.T, db dbm.DB) *Store {
 }
 
 func TestGetSetHasDelete(t *testing.T) {
-	store := newAlohaStore(t, memdb.NewVersionedDB())
+	store := newAlohaStore(t, memdb.NewDB())
 	key := "hello"
 
 	exists := store.Has([]byte(key))
 	require.True(t, exists)
 
-	value := store.Get([]byte(key))
-	require.EqualValues(t, value, alohaData[key])
+	require.EqualValues(t, []byte(alohaData[key]), store.Get([]byte(key)))
 
 	value2 := "notgoodbye"
 	store.Set([]byte(key), []byte(value2))
 
-	value = store.Get([]byte(key))
-	require.EqualValues(t, value, value2)
+	require.EqualValues(t, value2, store.Get([]byte(key)))
 
 	store.Delete([]byte(key))
 
@@ -59,7 +57,7 @@ func TestGetSetHasDelete(t *testing.T) {
 }
 
 func TestIterators(t *testing.T) {
-	store := newStoreWithData(t, memdb.NewVersionedDB(), map[string]string{
+	store := newStoreWithData(t, memdb.NewDB(), map[string]string{
 		string([]byte{0x00}):       "0",
 		string([]byte{0x00, 0x00}): "0 0",
 		string([]byte{0x00, 0x01}): "0 1",
@@ -106,49 +104,49 @@ func TestIterators(t *testing.T) {
 }
 
 // func TestBucketsAreIndependent(t *testing.T) {
-//	// Use separate dbs for each bucket
-//	dbsc := memdb.NewDB()
-//	dbss := memdb.NewDB()
-//	dbii := memdb.NewDB()
-//	sc, err := iavl.LoadStore(dbsc, types.CommitID{}, false)
-//	require.NoError(t, err)
-//	store := &Store{sc: sc, contents: dbss, inv: dbii}
+// 	// Use separate dbs for each bucket
+// 	dbsc := memdb.NewDB()
+// 	dbss := memdb.NewDB()
+// 	dbii := memdb.NewDB()
+// 	sc, err := iavl.LoadStore(dbsc, types.CommitID{}, false)
+// 	require.NoError(t, err)
+// 	store := &Store{sc: sc, contents: dbss, inv: dbii}
 
-//	storeData := map[string]string{
-//		"test1": "a",
-//		"test2": "b",
-//		"test3": "c",
-//		"foo":   "bar",
-//	}
-//	for k, v := range storeData {
-//		store.Set([]byte(k), []byte(v))
-//	}
-//	_ = sc.Commit()
+// 	storeData := map[string]string{
+// 		"test1": "a",
+// 		"test2": "b",
+// 		"test3": "c",
+// 		"foo":   "bar",
+// 	}
+// 	for k, v := range storeData {
+// 		store.Set([]byte(k), []byte(v))
+// 	}
+// 	_ = sc.Commit()
 
-//	dbiter, err := dbss.Iterator(nil, nil)
-//	require.Nil(t, err)
-//	iter := store.Iterator(nil, nil)
-//	for ; iter.Valid(); iter.Next() {
-//		require.True(t, dbiter.Valid(), "Missing records in backing DB")
-//		require.Equal(t, iter.Key(), dbiter.Key(), "Mismatched key in backing DB")
-//		require.Equal(t, iter.Value(), dbiter.Value(), "Mismatched value in backing DB")
-//		dbiter.Next()
-//	}
-//	require.False(t, dbiter.Valid(), "Extra records present in backing DB")
-//	iter.Close()
-//	dbiter.Close()
+// 	dbiter, err := dbss.Iterator(nil, nil)
+// 	require.Nil(t, err)
+// 	iter := store.Iterator(nil, nil)
+// 	for ; iter.Valid(); iter.Next() {
+// 		require.True(t, dbiter.Valid(), "Missing records in backing DB")
+// 		require.Equal(t, iter.Key(), dbiter.Key(), "Mismatched key in backing DB")
+// 		require.Equal(t, iter.Value(), dbiter.Value(), "Mismatched value in backing DB")
+// 		dbiter.Next()
+// 	}
+// 	require.False(t, dbiter.Valid(), "Extra records present in backing DB")
+// 	iter.Close()
+// 	dbiter.Close()
 
-//	dbiter, err = dbii.Iterator(nil, nil)
-//	require.Nil(t, err)
-//	for ; dbiter.Valid(); dbiter.Next() {
-//		require.False(t, store.Has(dbiter.Key()), "Index key is present in store's data bucket")
-//	}
-//	dbiter.Close()
+// 	dbiter, err = dbii.Iterator(nil, nil)
+// 	require.Nil(t, err)
+// 	for ; dbiter.Valid(); dbiter.Next() {
+// 		require.False(t, store.Has(dbiter.Key()), "Index key is present in store's data bucket")
+// 	}
+// 	dbiter.Close()
 // }
 
 // Sanity test for Merkle hashing
 func TestMerkleRoot(t *testing.T) {
-	store := newStoreWithData(t, memdb.NewVersionedDB(), nil)
+	store := newStoreWithData(t, memdb.NewDB(), nil)
 	idNew := store.Commit()
 	store.Set([]byte{0x00}, []byte("a"))
 	idOne := store.Commit()
@@ -160,8 +158,8 @@ func TestMerkleRoot(t *testing.T) {
 	require.Equal(t, idNew.Hash, idEmptied.Hash)
 }
 
-func TestAtVersion(t *testing.T) {
-	db := memdb.NewVersionedDB()
+func TestQuery(t *testing.T) {
+	db := memdb.NewDB()
 	store := newAlohaStore(t, db)
 	store.Commit()
 
@@ -172,13 +170,13 @@ func TestAtVersion(t *testing.T) {
 	// _, err = store.AtVersion(cID.Version + 1)
 	// require.NoError(t, err)
 
-	view, err := store.viewVersion(uint64(cID.Version - 1))
-	require.NoError(t, err)
-	require.Equal(t, []byte("goodbye"), view.Get([]byte("hello")))
+	// view, err := store.viewVersion(uint64(cID.Version - 1))
+	// require.NoError(t, err)
+	// require.Equal(t, []byte("goodbye"), view.Get([]byte("hello")))
 
-	view, err = store.viewVersion(uint64(cID.Version))
-	require.NoError(t, err)
-	require.Equal(t, []byte("adios"), view.Get([]byte("hello")))
+	// view, err = store.viewVersion(uint64(cID.Version))
+	// require.NoError(t, err)
+	// require.Equal(t, []byte("adios"), view.Get([]byte("hello")))
 
 	res := store.Query(abci.RequestQuery{
 		Data:   []byte("hello"),
@@ -186,7 +184,6 @@ func TestAtVersion(t *testing.T) {
 		Path:   "/key",
 		Prove:  true,
 	})
-	require.Equal(t, res.Value, []byte("adios"))
+	require.Equal(t, []byte("adios"), res.Value)
 	require.NotNil(t, res.ProofOps)
-
 }

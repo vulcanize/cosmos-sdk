@@ -9,12 +9,10 @@ import (
 
 	dbm "github.com/cosmos/cosmos-sdk/db"
 	abci "github.com/tendermint/tendermint/abci/types"
-	tmcrypto "github.com/tendermint/tendermint/proto/tendermint/crypto"
 
 	"github.com/cosmos/cosmos-sdk/store/cachekv"
-	"github.com/cosmos/cosmos-sdk/store/dbadapter"
-	"github.com/cosmos/cosmos-sdk/store/iavl"
 	"github.com/cosmos/cosmos-sdk/store/listenkv"
+	"github.com/cosmos/cosmos-sdk/store/smt"
 	"github.com/cosmos/cosmos-sdk/store/tracekv"
 	"github.com/cosmos/cosmos-sdk/store/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -34,96 +32,78 @@ var (
 )
 
 var (
-	versionsPrefix = []byte{0}
+	versionRootKey = []byte{0}
 	dataPrefix     = []byte{1}
 	indexPrefix    = []byte{2}
+	scPrefix       = []byte{3}
 )
 
 var ErrVersionDoesNotExist = errors.New("version does not exist")
 
 // TODO:
-// initial version logic - should be handled at DB level
-// separate backing DBs for SC/SS - desired? and test
 // telemetry
 // AddListener, AddTrace
-
-// A store which uses separate data structures for state storage (SS) and state commitments (SC)
-type Store struct {
-	// db   dbm.DB
-	scdb dbm.DB
-	// Direct KV mapping (SS)
-	contents dbm.DB
-	// Inverted index of SC values to SS keys
-	inv dbm.DB
-	// State commitments layer
-	sc types.CommitKVStore
-	// Mutex needed to lock stores in tandem during writes
-	mtx sync.Mutex
-	// TODO: unused
-	opts storeOptions
-	// Whether the SC and SS use different dbs
-	separateDBs bool
-}
+// Specify thread safety for this and other KV stores?
 
 type storeOptions struct {
 	initialVersion uint64
 	pruningOptions types.PruningOptions
+	// Whether the SC and SS use different dbs
+	separateDBs bool
+}
+
+type Store struct {
+	// DB connection, needed for version access
+	db dbm.DB
+	// RW access for current version
+	dbrw dbm.DBReadWriter
+	// SC data for current version
+	sc *smt.Store
+
+	mtx sync.RWMutex
+	// TODO: unused
+	// opts storeOptions
 }
 
 // Create a new, empty store from a single DB
 func NewStore(db dbm.DB) (*Store, error) {
-	current := db.CurrentVersion()
-	initial := db.InitialVersion()
-	if current != initial {
-		return nil, fmt.Errorf("DB contains existing versions (initial: %v; current: %v)", initial, current)
+	if saved := len(db.Versions()); saved != 0 {
+		return nil, fmt.Errorf("DB contains %v existing versions", saved)
 	}
-	return loadStore(db, db, false)
-}
-
-// Create a new store from SC store and DB
-func loadStore(db dbm.DB, scdb dbm.DB, separate bool) (*Store, error) {
-	dbVersion := db.CurrentVersion()
-	iavl, err := iavl.LoadStore(scdb, types.CommitID{}, false)
-	if err != nil {
-		return nil, err
-	}
-	scVersion := iavl.LastCommitID().Version + 1
-	if int64(dbVersion) != scVersion {
-		return nil, fmt.Errorf("Current version of SS and SC DBs do not match (%v != %v)", dbVersion, scVersion)
-	}
-	return makeStore(db, scdb, iavl, separate), nil
-}
-
-func makeStore(db dbm.DB, scdb dbm.DB, sc types.CommitKVStore, separate bool) *Store {
+	dbrw := db.NewWriter()
 	return &Store{
-		scdb:        scdb,
-		sc:          sc,
-		contents:    dbm.NewPrefixDB(db, dataPrefix),
-		inv:         dbm.NewPrefixDB(db, indexPrefix),
-		separateDBs: separate,
-		// opts:     storeOptions{initialVersion: db.InitialVersion()},
+		db:   db,
+		dbrw: dbrw,
+		sc:   smt.NewStore(dbm.NewPrefixWriter(dbrw, scPrefix)),
+		// opts:    storeOptions{initialVersion: db.InitialVersion()},
+	}, nil
+}
+
+func (s *Store) contents() dbm.DBReadWriter {
+	return dbm.NewPrefixWriter(s.dbrw, dataPrefix)
+}
+func (s *Store) index() dbm.DBReadWriter {
+	return dbm.NewPrefixWriter(s.dbrw, indexPrefix)
+}
+
+func (s *Store) lastVersion() uint64 {
+	versions := s.db.Versions()
+	if len(versions) == 0 {
+		return 0
 	}
+	return versions[len(versions)-1]
 }
 
-func (s *Store) currentVersion() uint64 {
-	return s.contents.CurrentVersion()
-}
-
-// Accessors for underlying store.
-// Injecting internal trace/listeners will need additional methods
-func (s *Store) GetCommitmentStorage() types.CommitKVStore {
+// Access the underlying SMT as a basic KV store
+func (s *Store) GetSCStore() types.BasicKVStore {
 	return s.sc
-}
-func (s *Store) GetStateStorage() types.KVStore {
-	return dbadapter.Store{DB: s.contents}
-}
-func (s *Store) GetStateIndex() types.KVStore {
-	return dbadapter.Store{DB: s.inv}
 }
 
 // implement KVStore
 func (s *Store) Get(key []byte) []byte {
-	val, err := s.contents.Get(key)
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	val, err := s.contents().Get(key)
 	if err != nil {
 		panic(err)
 	}
@@ -131,28 +111,29 @@ func (s *Store) Get(key []byte) []byte {
 }
 
 func (s *Store) Has(key []byte) bool {
-	has, err := s.contents.Has(key)
-	return err == nil && has
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	has, err := s.contents().Has(key)
+	if err != nil {
+		panic(err)
+	}
+	return has
 }
 
 func (s *Store) Set(key []byte, value []byte) {
 	kvHash := sha256.Sum256(append(key, value...))
-
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
 
-	err := s.contents.Set(key, value)
+	err := s.contents().Set(key, value)
 	if err != nil {
 		panic(err.Error())
 	}
-	err = s.inv.Set(kvHash[:], key)
+	err = s.index().Set(kvHash[:], key)
 	if err != nil {
 		panic(err.Error())
 	}
 	s.sc.Set(key, kvHash[:]) // TODO: key or hash(key)?
-	if err != nil {
-		panic(err.Error())
-	}
 }
 
 func (s *Store) Delete(key []byte) {
@@ -160,17 +141,18 @@ func (s *Store) Delete(key []byte) {
 	defer s.mtx.Unlock()
 
 	kvHash := s.sc.Get(key)
-	_, err := s.contents.Get(key)
+
+	_, err := s.contents().Get(key)
 	if err != nil {
-		panic(err.Error())
+		panic(err)
 	}
 	s.sc.Delete(key)
-	_ = s.inv.Delete(kvHash[:])
-	_ = s.contents.Delete(key)
+	_ = s.index().Delete(kvHash[:])
+	_ = s.contents().Delete(key)
 }
 
 func (s *Store) Iterator(start, end []byte) types.Iterator {
-	iter, err := s.contents.Iterator(start, end)
+	iter, err := s.contents().Iterator(start, end)
 	if err != nil {
 		panic(err)
 	}
@@ -178,7 +160,7 @@ func (s *Store) Iterator(start, end []byte) types.Iterator {
 }
 
 func (s *Store) ReverseIterator(start, end []byte) types.Iterator {
-	iter, err := s.contents.ReverseIterator(start, end)
+	iter, err := s.contents().ReverseIterator(start, end)
 	if err != nil {
 		panic(err)
 	}
@@ -203,75 +185,48 @@ func (s *Store) CacheWrapWithListeners(storeKey types.StoreKey, listeners []type
 
 // implement Committer
 func (s *Store) Commit() types.CommitID {
-	cid := s.sc.Commit()
-	dbver := s.scdb.SaveVersion()
-	if dbver != uint64(cid.Version) {
-		panic(fmt.Errorf("SC, Merkle versions: %v %v", dbver, cid.Version))
-	}
-	// TODO: more elegant solution?
-	if s.separateDBs {
-		ssver := s.contents.SaveVersion()
-		if dbver != ssver {
-			panic(fmt.Errorf("SC, SS vers: %v %v", dbver, ssver))
-		}
-	}
-	return cid
+	root := s.sc.Root()
+	s.dbrw.Set(versionRootKey, root)
+	s.dbrw.Commit()
+	s.db.SaveVersion()
+
+	// // TODO: more elegant solution?
+	// if s.opts.separateDBs {
+	// 	scver := s.scdb.SaveVersion()
+	// 	if last := s.lastVersion(); last != scver {
+	// 		panic(fmt.Errorf("Storage DB version (%v) does not match SC DB version (%v)", last, scver))
+	// 	}
+	// }
+
+	s.dbrw = s.db.NewWriter()
+	s.sc = smt.LoadStore(dbm.NewPrefixWriter(s.dbrw, scPrefix), root)
+	return s.LastCommitID()
 }
 
 func (s *Store) LastCommitID() types.CommitID {
-	return s.sc.LastCommitID()
+	last := s.lastVersion()
+	if last == 0 {
+		return types.CommitID{}
+	}
+	dbr := s.db.NewReaderAt(last)
+	hash, err := dbr.Get(versionRootKey)
+	if err != nil {
+		panic(err)
+	}
+	return types.CommitID{
+		Version: int64(last),
+		Hash:    hash,
+	}
 }
 
 // TODO: these should be implemented in DB
 func (s *Store) SetPruning(types.PruningOptions)  {}
 func (s *Store) GetPruning() types.PruningOptions { return types.PruningOptions{} }
-func (s *Store) SetInitialVersion(version int64) {
-	s.sc.(types.StoreWithInitialVersion).SetInitialVersion(version)
-}
+func (s *Store) SetInitialVersion(version int64)  {}
 
 func (s *Store) versionExists(v uint64) bool {
-	_, err := s.contents.AtVersion(v)
-	return err == nil // TODO: check error?
-}
-
-// A read-only view of a store
-type storeView struct {
-	db, scdb       dbm.DB
-	version        uint64
-	initialVersion uint64
-}
-
-func (s *Store) viewVersion(version uint64) (*storeView, error) {
-	scView, err := s.scdb.AtVersion(version)
-	if err != nil {
-		return nil, err
-	}
-	dbView, err := s.contents.AtVersion(version)
-	if err != nil {
-		return nil, fmt.Errorf("version %v exists in commitments DB but not storage DB: %w", version, err)
-	}
-	return &storeView{
-		db:      dbView,
-		scdb:    scView,
-		version: version,
-		// initialVersion: s.opts.initialVersion,
-	}, nil
-}
-
-func (sv *storeView) Get(key []byte) []byte {
-	val, err := sv.db.Get(key)
-	if err != nil {
-		panic(err)
-	}
-	return val
-}
-
-func (sv *storeView) GetProof(key []byte, exists bool) *tmcrypto.ProofOps {
-	merkle, err := iavl.LoadVersionView(sv.scdb, int64(sv.version), sv.initialVersion)
-	if err != nil {
-		panic(err.Error())
-	}
-	return merkle.(*iavl.Store).GetProof(key, exists)
+	r := s.db.NewReaderAt(v)
+	return r != nil
 }
 
 // Query implements ABCI interface, allows queries
@@ -291,7 +246,7 @@ func (s *Store) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
 	// store chosen height the response, with 0 changed to latest height
 	height := uint64(req.Height)
 	if height == 0 {
-		current := s.currentVersion()
+		current := s.db.CurrentVersion()
 		if s.versionExists(current - 1) {
 			height = current - 1
 		} else {
@@ -301,20 +256,32 @@ func (s *Store) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
 	res.Height = int64(height)
 
 	switch req.Path {
-	case "/key": // get by key
+	case "/key":
+		var err error
 		res.Key = req.Data // data holds the key bytes
-		view, err := s.viewVersion(height)
-		if err != nil {
-			panic(err)
+
+		dbr := s.db.NewReaderAt(height)
+		if dbr == nil {
+			return sdkerrors.QueryResult(sdkerrors.ErrInvalidHeight)
 		}
-		res.Value = view.Get(res.Key)
+		contents := dbm.NewPrefixReader(dbr, dataPrefix)
+		res.Value, err = contents.Get(res.Key)
 		if err != nil {
-			panic(fmt.Sprintf("db get %v", res.Key)) // TODO
+			return sdkerrors.QueryResult(sdkerrors.ErrKeyNotFound)
 		}
 		if !req.Prove {
 			break
 		}
-		res.ProofOps = view.GetProof(res.Key, res.Value != nil)
+		root, err := dbr.Get(versionRootKey)
+		if err != nil {
+			panic(err)
+		}
+		treedb := dbm.NewWriterFromReader(dbm.NewPrefixReader(dbr, scPrefix))
+		tree := smt.LoadStore(treedb, root)
+		res.ProofOps, err = tree.GetProof(res.Key)
+		if err != nil {
+			panic(err)
+		}
 
 	case "/subspace":
 		pairs := kv.Pairs{

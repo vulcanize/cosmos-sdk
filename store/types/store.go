@@ -194,10 +194,8 @@ type CommitMultiStore interface {
 //---------subsp-------------------------------
 // KVStore
 
-// KVStore is a simple interface to get/set data
-type KVStore interface {
-	Store
-
+// BasicKVStore is a simple interface to get/set data
+type BasicKVStore interface {
 	// Get returns nil iff key doesn't exist. Panics on nil key.
 	Get(key []byte) []byte
 
@@ -206,6 +204,12 @@ type KVStore interface {
 
 	// Set sets the key. Panics on nil key or value.
 	Set(key, value []byte)
+}
+
+// KVStore additionally provides iteration and deletion
+type KVStore interface {
+	Store
+	BasicKVStore
 
 	// Delete deletes the key. Panics on nil key.
 	Delete(key []byte)
