@@ -33,9 +33,9 @@ var (
 
 var (
 	versionRootKey = []byte{0}
-	dataPrefix     = []byte{1}
-	indexPrefix    = []byte{2}
-	scPrefix       = []byte{3}
+	scPrefix       = []byte{1}
+	dataPrefix     = []byte{2}
+	indexPrefix    = []byte{3}
 )
 
 var ErrVersionDoesNotExist = errors.New("version does not exist")
@@ -45,77 +45,104 @@ var ErrVersionDoesNotExist = errors.New("version does not exist")
 // AddListener, AddTrace
 // Specify thread safety for this and other KV stores?
 // do we want a version access method (like GetImmutable)?
+// separate DBs require fully matched version sets or a more complex strategy to handle a mismatch
 
 type storeOptions struct {
-	initialVersion uint64
-	pruningOptions types.PruningOptions
+	// initialVersion uint64
+	// pruningOptions types.PruningOptions
 	// Whether the SC and SS use different dbs
 	separateDBs bool
 }
 
-type Store struct {
+type dbHandle struct {
+	// R/W access for current version
+	dbm.DBReadWriter
 	// DB connection, needed for version access
-	db dbm.DB
-	// RW access for current version
-	dbrw dbm.DBReadWriter
-	// SC data for current version
-	sc *smt.Store
+	conn dbm.DB
+}
 
-	mtx sync.RWMutex
-	// TODO: unused
+type Store struct {
+	ss, sc dbHandle
+	// SC KV store for current version
+	sckv *smt.Store
+
 	// opts storeOptions
+	mtx sync.RWMutex
 }
 
 // Create a new, empty store from a single DB
-func NewStore(db dbm.DB) (*Store, error) {
+// If scdb is nil, the same DB is used for SS and SC storage.
+func NewStore(db, scdb dbm.DB) (*Store, error) {
 	if saved := len(db.Versions()); saved != 0 {
 		return nil, fmt.Errorf("DB contains %v existing versions", saved)
 	}
-	dbrw := db.NewWriter()
+	ss := newDBHandle(db)
+	if scdb != nil {
+		// Separate DBs for SS and SC
+		if saved := len(scdb.Versions()); saved != 0 {
+			return nil, fmt.Errorf("SC DB contains %v existing versions", saved)
+		}
+	} else {
+		scdb = db
+	}
+	sc := newDBHandle(scdb)
 	return &Store{
-		db:   db,
-		dbrw: dbrw,
-		sc:   smt.NewStore(dbm.NewPrefixReadWriter(dbrw, scPrefix)),
-		// opts:    storeOptions{initialVersion: db.InitialVersion()},
+		ss: ss, sc: sc,
+		// Prefix still needed for separate SC DB since version key must be partitioned
+		sckv: smt.NewStore(dbm.NewPrefixReadWriter(sc, scPrefix)),
 	}, nil
 }
 
 // Load existing store from a DB
-func LoadStore(db dbm.DB) (*Store, error) {
-	dbrw := db.NewWriter()
-	root, err := dbrw.Get(versionRootKey)
+// If scdb is nil, the same DB is used for SS and SC storage.
+func LoadStore(db, scdb dbm.DB) (*Store, error) {
+	ss := newDBHandle(db)
+	if scdb != nil {
+		if db.CurrentVersion() != scdb.CurrentVersion() {
+			return nil, fmt.Errorf("Current version of SS (%v) and SC (%v) DBs do not match",
+				db.CurrentVersion(), scdb.CurrentVersion())
+		}
+	} else {
+		scdb = db
+	}
+	sc := newDBHandle(scdb)
+	root, err := sc.Get(versionRootKey)
 	if err != nil {
 		panic(err)
 	}
 	return &Store{
-		db:   db,
-		dbrw: dbrw,
-		sc:   smt.LoadStore(dbm.NewPrefixReadWriter(dbrw, scPrefix), root),
-		// opts: storeOptions{initialVersion: db.InitialVersion()},
+		ss: ss, sc: sc,
+		sckv: smt.LoadStore(dbm.NewPrefixReadWriter(sc, scPrefix), root),
 	}, nil
 }
 
-// SS bucket and inverted index accessors
-// prefixer is cheap to create, so just wrap in this call
-
-func (s *Store) contents() dbm.DBReadWriter {
-	return dbm.NewPrefixReadWriter(s.dbrw, dataPrefix)
-}
-func (s *Store) index() dbm.DBReadWriter {
-	return dbm.NewPrefixReadWriter(s.dbrw, indexPrefix)
+func newDBHandle(db dbm.DB) dbHandle {
+	return dbHandle{conn: db, DBReadWriter: db.NewWriter()}
 }
 
-func (s *Store) lastVersion() int64 {
-	versions := s.db.Versions()
+func lastVersion(db dbm.DB) int64 {
+	versions := db.Versions()
 	if len(versions) == 0 {
 		return 0
 	}
 	return int64(versions[len(versions)-1])
 }
 
+// SS bucket and inverted index accessors
+// prefixer is cheap to create, so just wrap in this call
+
+func (s *Store) contents() dbm.DBReadWriter {
+	return dbm.NewPrefixReadWriter(s.ss, dataPrefix)
+}
+func (s *Store) index() dbm.DBReadWriter {
+	return dbm.NewPrefixReadWriter(s.ss, indexPrefix)
+}
+
+func (s *Store) separateDBs() bool { return s.ss.conn != s.sc.conn }
+
 // Access the underlying SMT as a basic KV store
 func (s *Store) GetSCStore() types.BasicKVStore {
-	return s.sc
+	return s.sckv
 }
 
 // Get implements KVStore.
@@ -155,7 +182,7 @@ func (s *Store) Set(key []byte, value []byte) {
 	if err != nil {
 		panic(err.Error())
 	}
-	s.sc.Set(key, kvHash[:])
+	s.sckv.Set(key, kvHash[:])
 }
 
 // Delete implements KVStore.
@@ -163,13 +190,13 @@ func (s *Store) Delete(key []byte) {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
 
-	kvHash := s.sc.Get(key)
+	kvHash := s.sckv.Get(key)
 
 	_, err := s.contents().Get(key)
 	if err != nil {
 		panic(err)
 	}
-	s.sc.Delete(key)
+	s.sckv.Delete(key)
 	_ = s.index().Delete(kvHash[:])
 	_ = s.contents().Delete(key)
 }
@@ -214,32 +241,35 @@ func (s *Store) CacheWrapWithListeners(storeKey types.StoreKey, listeners []type
 
 // Commit implements Committer.
 func (s *Store) Commit() types.CommitID {
-	root := s.sc.Root()
-	s.dbrw.Set(versionRootKey, root)
-	s.dbrw.Commit()
-	s.db.SaveVersion()
+	root := s.sckv.Root()
+	s.sc.Set(versionRootKey, root)
+	s.sc.Commit()
+	s.ss.Commit()
+	s.ss.conn.SaveVersion()
 
-	// // TODO: more elegant solution?
-	// if s.opts.separateDBs {
-	// 	scver := s.scdb.SaveVersion()
-	// 	if last := s.lastVersion(); last != scver {
-	// 		panic(fmt.Errorf("Storage DB version (%v) does not match SC DB version (%v)", last, scver))
-	// 	}
-	// }
+	// TODO: more elegant solution?
+	if s.separateDBs() {
+		scver := s.sc.conn.SaveVersion()
+		if last := lastVersion(s.ss.conn); last != int64(scver) {
+			panic(fmt.Errorf("Latest version of SS (%v) and SC (%v) DBs do not match", last, scver))
+		}
+	}
 
-	s.dbrw = s.db.NewWriter()
-	s.sc = smt.LoadStore(dbm.NewPrefixReadWriter(s.dbrw, scPrefix), root)
+	s.sc = newDBHandle(s.sc.conn)
+	s.ss = newDBHandle(s.ss.conn)
+	s.sckv = smt.LoadStore(dbm.NewPrefixReadWriter(s.sc, scPrefix), root)
 	return s.LastCommitID()
 }
 
 // LastCommitID implements KVStore.
 func (s *Store) LastCommitID() types.CommitID {
-	last := s.lastVersion()
+	last := lastVersion(s.ss.conn)
 	if last == 0 {
 		return types.CommitID{}
 	}
-	dbr := s.db.NewReaderAt(uint64(last))
-	hash, err := dbr.Get(versionRootKey)
+	// dbr := s.sc.conn.NewReaderAt(uint64(last))
+	// Latest Merkle root should be the one currently stored
+	hash, err := s.sc.Get(versionRootKey)
 	if err != nil {
 		panic(err)
 	}
@@ -254,12 +284,16 @@ func (s *Store) SetPruning(types.PruningOptions)  {}
 func (s *Store) GetPruning() types.PruningOptions { return types.PruningOptions{} }
 func (s *Store) SetInitialVersion(version int64)  {}
 
-func (s *Store) versionExists(v int64) bool {
-	if v < 0 {
+func (s *Store) versionExists(version int64) bool {
+	if version < 0 {
 		return false
 	}
-	r := s.db.NewReaderAt(uint64(v))
+	r := s.ss.conn.NewReaderAt(uint64(version))
 	return r != nil
+	// for _, valid := range s.ss.Versions() {
+	//	if valid == uint64(version) { return true}
+	// }
+	// return false
 }
 
 // Query implements ABCI interface, allows queries.
@@ -279,7 +313,7 @@ func (s *Store) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
 	// if height is 0, use the latest height
 	height := req.Height
 	if height == 0 {
-		latest := s.lastVersion()
+		latest := lastVersion(s.ss.conn)
 		if s.versionExists(latest - 1) {
 			height = latest - 1
 		} else {
@@ -293,7 +327,8 @@ func (s *Store) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
 		var err error
 		res.Key = req.Data // data holds the key bytes
 
-		dbr := s.db.NewReaderAt(uint64(height))
+		dbr := s.ss.conn.NewReaderAt(uint64(height))
+		defer dbr.Discard()
 		if dbr == nil {
 			return sdkerrors.QueryResult(sdkerrors.ErrInvalidHeight)
 		}
@@ -305,13 +340,17 @@ func (s *Store) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
 		if !req.Prove {
 			break
 		}
-		root, err := dbr.Get(versionRootKey)
+		scr := s.sc.conn.NewReaderAt(uint64(height))
+		defer scr.Discard()
+		if scr == nil {
+			return sdkerrors.QueryResult(sdkerrors.ErrInvalidHeight)
+		}
+		root, err := scr.Get(versionRootKey)
 		if err != nil {
 			panic(err)
 		}
-		treedb := dbm.NewWriterFromReader(dbm.NewPrefixReader(dbr, scPrefix))
-		tree := smt.LoadStore(treedb, root)
-		res.ProofOps, err = tree.GetProof(res.Key)
+		sc := smt.LoadStore(dbm.NewWriterFromReader(dbm.NewPrefixReader(scr, scPrefix)), root)
+		res.ProofOps, err = sc.GetProof(res.Key)
 		if err != nil {
 			panic(err)
 		}

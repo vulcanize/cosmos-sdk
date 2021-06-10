@@ -22,7 +22,7 @@ var (
 )
 
 func newStoreWithData(t *testing.T, db dbm.DB, storeData map[string]string) *Store {
-	store, err := NewStore(db)
+	store, err := NewStore(db, nil)
 	require.NoError(t, err)
 
 	for k, v := range storeData {
