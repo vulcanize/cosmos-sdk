@@ -1,28 +1,28 @@
 package db
 
 // Prefix Reader/Writer lets you namespace multiple DBs within a single DB.
-type PrefixReader struct {
+type PrefixR struct {
 	db     DBReader
 	prefix []byte
 }
 
-type PrefixWriter struct {
+type PrefixRW struct {
 	db     DBReadWriter
 	prefix []byte
 }
 
-var _ DBReader = (*PrefixReader)(nil)
-var _ DBReadWriter = (*PrefixWriter)(nil)
+var _ DBReader = (*PrefixR)(nil)
+var _ DBReadWriter = (*PrefixRW)(nil)
 
-func NewPrefixReader(db DBReader, prefix []byte) *PrefixReader {
-	return &PrefixReader{
+func NewPrefixReader(db DBReader, prefix []byte) PrefixR {
+	return PrefixR{
 		prefix: prefix,
 		db:     db,
 	}
 }
 
-func NewPrefixWriter(db DBReadWriter, prefix []byte) *PrefixWriter {
-	return &PrefixWriter{
+func NewPrefixReadWriter(db DBReadWriter, prefix []byte) PrefixRW {
+	return PrefixRW{
 		prefix: prefix,
 		db:     db,
 	}
@@ -33,7 +33,7 @@ func prefixed(prefix []byte, key []byte) []byte {
 }
 
 // Get implements DBReader.
-func (pdb *PrefixReader) Get(key []byte) ([]byte, error) {
+func (pdb PrefixR) Get(key []byte) ([]byte, error) {
 	if len(key) == 0 {
 		return nil, ErrKeyEmpty
 	}
@@ -41,7 +41,7 @@ func (pdb *PrefixReader) Get(key []byte) ([]byte, error) {
 }
 
 // Has implements DBReader.
-func (pdb *PrefixReader) Has(key []byte) (bool, error) {
+func (pdb PrefixR) Has(key []byte) (bool, error) {
 	if len(key) == 0 {
 		return false, ErrKeyEmpty
 	}
@@ -49,7 +49,7 @@ func (pdb *PrefixReader) Has(key []byte) (bool, error) {
 }
 
 // Iterator implements DBReader.
-func (pdb *PrefixReader) Iterator(start, end []byte) (Iterator, error) {
+func (pdb PrefixR) Iterator(start, end []byte) (Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, ErrKeyEmpty
 	}
@@ -68,7 +68,7 @@ func (pdb *PrefixReader) Iterator(start, end []byte) (Iterator, error) {
 }
 
 // ReverseIterator implements DBReader.
-func (pdb *PrefixReader) ReverseIterator(start, end []byte) (Iterator, error) {
+func (pdb PrefixR) ReverseIterator(start, end []byte) (Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, ErrKeyEmpty
 	}
@@ -87,10 +87,10 @@ func (pdb *PrefixReader) ReverseIterator(start, end []byte) (Iterator, error) {
 }
 
 // Discard implements DBReader.
-func (pdb *PrefixReader) Discard() { pdb.db.Discard() }
+func (pdb PrefixR) Discard() { pdb.db.Discard() }
 
 // Set implements DBReadWriter.
-func (pdb *PrefixWriter) Set(key []byte, value []byte) error {
+func (pdb PrefixRW) Set(key []byte, value []byte) error {
 	if len(key) == 0 {
 		return ErrKeyEmpty
 	}
@@ -98,7 +98,7 @@ func (pdb *PrefixWriter) Set(key []byte, value []byte) error {
 }
 
 // Delete implements DBReadWriter.
-func (pdb *PrefixWriter) Delete(key []byte) error {
+func (pdb PrefixRW) Delete(key []byte) error {
 	if len(key) == 0 {
 		return ErrKeyEmpty
 	}
@@ -106,27 +106,27 @@ func (pdb *PrefixWriter) Delete(key []byte) error {
 }
 
 // Get implements DBReadWriter.
-func (pdb *PrefixWriter) Get(key []byte) ([]byte, error) {
+func (pdb PrefixRW) Get(key []byte) ([]byte, error) {
 	return NewPrefixReader(pdb.db, pdb.prefix).Get(key)
 }
 
 // Has implements DBReadWriter.
-func (pdb *PrefixWriter) Has(key []byte) (bool, error) {
+func (pdb PrefixRW) Has(key []byte) (bool, error) {
 	return NewPrefixReader(pdb.db, pdb.prefix).Has(key)
 }
 
 // Iterator implements DBReadWriter.
-func (pdb *PrefixWriter) Iterator(start, end []byte) (Iterator, error) {
+func (pdb PrefixRW) Iterator(start, end []byte) (Iterator, error) {
 	return NewPrefixReader(pdb.db, pdb.prefix).Iterator(start, end)
 }
 
 // ReverseIterator implements DBReadWriter.
-func (pdb *PrefixWriter) ReverseIterator(start, end []byte) (Iterator, error) {
+func (pdb PrefixRW) ReverseIterator(start, end []byte) (Iterator, error) {
 	return NewPrefixReader(pdb.db, pdb.prefix).ReverseIterator(start, end)
 }
 
 // Close implements DBReadWriter.
-func (pdb *PrefixWriter) Commit() error { return pdb.db.Commit() }
+func (pdb PrefixRW) Commit() error { return pdb.db.Commit() }
 
 // Discard implements DBReadWriter.
-func (pdb *PrefixWriter) Discard() { pdb.db.Discard() }
+func (pdb PrefixRW) Discard() { pdb.db.Discard() }

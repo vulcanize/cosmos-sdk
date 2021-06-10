@@ -75,7 +75,7 @@ func NewStore(db dbm.DB) (*Store, error) {
 	return &Store{
 		db:   db,
 		dbrw: dbrw,
-		sc:   smt.NewStore(dbm.NewPrefixWriter(dbrw, scPrefix)),
+		sc:   smt.NewStore(dbm.NewPrefixReadWriter(dbrw, scPrefix)),
 		// opts:    storeOptions{initialVersion: db.InitialVersion()},
 	}, nil
 }
@@ -90,19 +90,19 @@ func LoadStore(db dbm.DB) (*Store, error) {
 	return &Store{
 		db:   db,
 		dbrw: dbrw,
-		sc:   smt.LoadStore(dbm.NewPrefixWriter(dbrw, scPrefix), root),
+		sc:   smt.LoadStore(dbm.NewPrefixReadWriter(dbrw, scPrefix), root),
 		// opts: storeOptions{initialVersion: db.InitialVersion()},
 	}, nil
 }
 
 // SS bucket and inverted index accessors
-// prefix writer is cheap to create, so just wrap in this call
+// prefixer is cheap to create, so just wrap in this call
 
 func (s *Store) contents() dbm.DBReadWriter {
-	return dbm.NewPrefixWriter(s.dbrw, dataPrefix)
+	return dbm.NewPrefixReadWriter(s.dbrw, dataPrefix)
 }
 func (s *Store) index() dbm.DBReadWriter {
-	return dbm.NewPrefixWriter(s.dbrw, indexPrefix)
+	return dbm.NewPrefixReadWriter(s.dbrw, indexPrefix)
 }
 
 func (s *Store) lastVersion() int64 {
@@ -228,7 +228,7 @@ func (s *Store) Commit() types.CommitID {
 	// }
 
 	s.dbrw = s.db.NewWriter()
-	s.sc = smt.LoadStore(dbm.NewPrefixWriter(s.dbrw, scPrefix), root)
+	s.sc = smt.LoadStore(dbm.NewPrefixReadWriter(s.dbrw, scPrefix), root)
 	return s.LastCommitID()
 }
 

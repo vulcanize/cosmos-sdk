@@ -91,10 +91,8 @@ type DBReader interface {
 	Discard()
 }
 
-// A batch/transaction that is also capable of writing to the backing DB.
-type DBReadWriter interface {
-	DBReader
-
+// A write-only batch; can be used to wrap write-optimized batches
+type DBWriter interface {
 	// Set sets the value for the given key, replacing it if it already exists.
 	// CONTRACT: key, value readonly []byte
 	Set([]byte, []byte) error
@@ -106,15 +104,16 @@ type DBReadWriter interface {
 	// Flushes pending writes and discards the transaction.
 	// TODO: maybe change to Flush() and follow WriteBatch semantics (ie. don't discard)
 	Commit() error
+
+	// Discards the transaction, invalidating any future operations on it.
+	Discard()
 }
 
-// // A write-only batch
-// type DBWriter interface {
-// 	Set([]byte, []byte) error
-// 	Delete([]byte) error
-// 	Commit() error
-// 	Discard()
-// }
+// A batch/transaction that is capable of reading and writing to the backing DB.
+type DBReadWriter interface {
+	DBReader
+	DBWriter
+}
 
 // Iterator represents an iterator over a domain of keys. Callers must call Close when done.
 // No writes can happen to a domain while there exists an iterator over it, some backends may take
