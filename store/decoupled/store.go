@@ -44,6 +44,7 @@ var ErrVersionDoesNotExist = errors.New("version does not exist")
 // telemetry
 // AddListener, AddTrace
 // Specify thread safety for this and other KV stores?
+// do we want a version access method (like GetImmutable)?
 
 type storeOptions struct {
 	initialVersion uint64
@@ -79,6 +80,24 @@ func NewStore(db dbm.DB) (*Store, error) {
 	}, nil
 }
 
+// Load existing store from a DB
+func LoadStore(db dbm.DB) (*Store, error) {
+	dbrw := db.NewWriter()
+	root, err := dbrw.Get(versionRootKey)
+	if err != nil {
+		panic(err)
+	}
+	return &Store{
+		db:   db,
+		dbrw: dbrw,
+		sc:   smt.LoadStore(dbm.NewPrefixWriter(dbrw, scPrefix), root),
+		// opts: storeOptions{initialVersion: db.InitialVersion()},
+	}, nil
+}
+
+// SS bucket and inverted index accessors
+// prefix writer is cheap to create, so just wrap in this call
+
 func (s *Store) contents() dbm.DBReadWriter {
 	return dbm.NewPrefixWriter(s.dbrw, dataPrefix)
 }
@@ -86,12 +105,12 @@ func (s *Store) index() dbm.DBReadWriter {
 	return dbm.NewPrefixWriter(s.dbrw, indexPrefix)
 }
 
-func (s *Store) lastVersion() uint64 {
+func (s *Store) lastVersion() int64 {
 	versions := s.db.Versions()
 	if len(versions) == 0 {
 		return 0
 	}
-	return versions[len(versions)-1]
+	return int64(versions[len(versions)-1])
 }
 
 // Access the underlying SMT as a basic KV store
@@ -99,7 +118,8 @@ func (s *Store) GetSCStore() types.BasicKVStore {
 	return s.sc
 }
 
-// implement KVStore
+// Get implements KVStore.
+// Get implements KVStore.
 func (s *Store) Get(key []byte) []byte {
 	s.mtx.RLock()
 	defer s.mtx.RUnlock()
@@ -110,6 +130,7 @@ func (s *Store) Get(key []byte) []byte {
 	return val
 }
 
+// Has implements KVStore.
 func (s *Store) Has(key []byte) bool {
 	s.mtx.RLock()
 	defer s.mtx.RUnlock()
@@ -120,6 +141,7 @@ func (s *Store) Has(key []byte) bool {
 	return has
 }
 
+// Set implements KVStore.
 func (s *Store) Set(key []byte, value []byte) {
 	kvHash := sha256.Sum256(append(key, value...))
 	s.mtx.Lock()
@@ -133,9 +155,10 @@ func (s *Store) Set(key []byte, value []byte) {
 	if err != nil {
 		panic(err.Error())
 	}
-	s.sc.Set(key, kvHash[:]) // TODO: key or hash(key)?
+	s.sc.Set(key, kvHash[:])
 }
 
+// Delete implements KVStore.
 func (s *Store) Delete(key []byte) {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
@@ -151,6 +174,7 @@ func (s *Store) Delete(key []byte) {
 	_ = s.contents().Delete(key)
 }
 
+// Iterator implements KVStore.
 func (s *Store) Iterator(start, end []byte) types.Iterator {
 	iter, err := s.contents().Iterator(start, end)
 	if err != nil {
@@ -159,6 +183,7 @@ func (s *Store) Iterator(start, end []byte) types.Iterator {
 	return iter
 }
 
+// ReverseIterator implements KVStore.
 func (s *Store) ReverseIterator(start, end []byte) types.Iterator {
 	iter, err := s.contents().ReverseIterator(start, end)
 	if err != nil {
@@ -167,23 +192,27 @@ func (s *Store) ReverseIterator(start, end []byte) types.Iterator {
 	return iter
 }
 
-// implement Store
+// GetStoreType implements Store.
 func (s *Store) GetStoreType() types.StoreType {
 	return types.StoreTypeDecoupled
 }
 
-// implement CacheWrapper
+// CacheWrap implements CacheWrapper.
 func (s *Store) CacheWrap() types.CacheWrap {
 	return cachekv.NewStore(s)
 }
+
+// CacheWrapWithTrace implements CacheWrapper.
 func (s *Store) CacheWrapWithTrace(w io.Writer, tc types.TraceContext) types.CacheWrap {
 	return cachekv.NewStore(tracekv.NewStore(s, w, tc))
 }
+
+// CacheWrapWithListeners implements CacheWrapper.
 func (s *Store) CacheWrapWithListeners(storeKey types.StoreKey, listeners []types.WriteListener) types.CacheWrap {
 	return cachekv.NewStore(listenkv.NewStore(s, storeKey, listeners))
 }
 
-// implement Committer
+// Commit implements Committer.
 func (s *Store) Commit() types.CommitID {
 	root := s.sc.Root()
 	s.dbrw.Set(versionRootKey, root)
@@ -203,18 +232,19 @@ func (s *Store) Commit() types.CommitID {
 	return s.LastCommitID()
 }
 
+// LastCommitID implements KVStore.
 func (s *Store) LastCommitID() types.CommitID {
 	last := s.lastVersion()
 	if last == 0 {
 		return types.CommitID{}
 	}
-	dbr := s.db.NewReaderAt(last)
+	dbr := s.db.NewReaderAt(uint64(last))
 	hash, err := dbr.Get(versionRootKey)
 	if err != nil {
 		panic(err)
 	}
 	return types.CommitID{
-		Version: int64(last),
+		Version: last,
 		Hash:    hash,
 	}
 }
@@ -224,12 +254,15 @@ func (s *Store) SetPruning(types.PruningOptions)  {}
 func (s *Store) GetPruning() types.PruningOptions { return types.PruningOptions{} }
 func (s *Store) SetInitialVersion(version int64)  {}
 
-func (s *Store) versionExists(v uint64) bool {
-	r := s.db.NewReaderAt(v)
+func (s *Store) versionExists(v int64) bool {
+	if v < 0 {
+		return false
+	}
+	r := s.db.NewReaderAt(uint64(v))
 	return r != nil
 }
 
-// Query implements ABCI interface, allows queries
+// Query implements ABCI interface, allows queries.
 //
 // by default we will return from (latest height -1),
 // as we will have merkle proofs immediately (header height = data height + 1)
@@ -243,24 +276,24 @@ func (s *Store) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
 		return sdkerrors.QueryResult(sdkerrors.Wrap(sdkerrors.ErrTxDecode, "query cannot be zero length"))
 	}
 
-	// store chosen height the response, with 0 changed to latest height
-	height := uint64(req.Height)
+	// if height is 0, use the latest height
+	height := req.Height
 	if height == 0 {
-		current := s.db.CurrentVersion()
-		if s.versionExists(current - 1) {
-			height = current - 1
+		latest := s.lastVersion()
+		if s.versionExists(latest - 1) {
+			height = latest - 1
 		} else {
-			height = current
+			height = latest
 		}
 	}
-	res.Height = int64(height)
+	res.Height = height
 
 	switch req.Path {
 	case "/key":
 		var err error
 		res.Key = req.Data // data holds the key bytes
 
-		dbr := s.db.NewReaderAt(height)
+		dbr := s.db.NewReaderAt(uint64(height))
 		if dbr == nil {
 			return sdkerrors.QueryResult(sdkerrors.ErrInvalidHeight)
 		}
