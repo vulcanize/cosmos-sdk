@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"io"
 
+	dbm "github.com/cosmos/cosmos-sdk/db"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmstrings "github.com/tendermint/tendermint/libs/strings"
-	dbm "github.com/tendermint/tm-db"
+	tmdb "github.com/tendermint/tm-db"
 
 	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
 	"github.com/cosmos/cosmos-sdk/types/kv"
@@ -153,7 +154,7 @@ type CommitMultiStore interface {
 
 	// Mount a store of type using the given db.
 	// If db == nil, the new store will use the CommitMultiStore db.
-	MountStoreWithDB(key StoreKey, typ StoreType, db dbm.DB)
+	MountStoreWithDB(key StoreKey, typ StoreType, db tmdb.DB)
 
 	// Panics on a nil key.
 	GetCommitStore(key StoreKey) CommitStore
@@ -193,10 +194,8 @@ type CommitMultiStore interface {
 //---------subsp-------------------------------
 // KVStore
 
-// KVStore is a simple interface to get/set data
-type KVStore interface {
-	Store
-
+// BasicKVStore is a simple interface to get/set data
+type BasicKVStore interface {
 	// Get returns nil iff key doesn't exist. Panics on nil key.
 	Get(key []byte) []byte
 
@@ -205,6 +204,12 @@ type KVStore interface {
 
 	// Set sets the key. Panics on nil key or value.
 	Set(key, value []byte)
+}
+
+// KVStore additionally provides iteration and deletion
+type KVStore interface {
+	Store
+	BasicKVStore
 
 	// Delete deletes the key. Panics on nil key.
 	Delete(key []byte)
@@ -242,6 +247,12 @@ type CacheKVStore interface {
 type CommitKVStore interface {
 	Committer
 	KVStore
+}
+
+type VersionedKVStore interface {
+	CommitKVStore
+	AtVersion(int64) (KVStore, error)
+	VersionExists(int64) bool
 }
 
 //----------------------------------------
@@ -294,8 +305,10 @@ const (
 	StoreTypeMulti StoreType = iota
 	StoreTypeDB
 	StoreTypeIAVL
+	StoreTypeDecoupled // TODO: StoreTypeMerkle? - if deprecating all standalone merkle stores
 	StoreTypeTransient
 	StoreTypeMemory
+	StoreTypeSMT
 )
 
 func (st StoreType) String() string {
@@ -309,11 +322,17 @@ func (st StoreType) String() string {
 	case StoreTypeIAVL:
 		return "StoreTypeIAVL"
 
+	case StoreTypeDecoupled:
+		return "StoreTypeDecoupled"
+
 	case StoreTypeTransient:
 		return "StoreTypeTransient"
 
 	case StoreTypeMemory:
 		return "StoreTypeMemory"
+
+	case StoreTypeSMT:
+		return "StoreTypeSMT"
 	}
 
 	return "unknown store type"

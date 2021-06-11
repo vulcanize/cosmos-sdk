@@ -1,0 +1,86 @@
+package smt
+
+import (
+	"crypto/sha256"
+	"time"
+
+	dbm "github.com/cosmos/cosmos-sdk/db"
+	"github.com/cosmos/cosmos-sdk/store/types"
+	"github.com/cosmos/cosmos-sdk/telemetry"
+	tmcrypto "github.com/tendermint/tendermint/proto/tendermint/crypto"
+
+	"github.com/lazyledger/smt"
+)
+
+var (
+	_ types.BasicKVStore = (*Store)(nil)
+)
+
+// Store Implements types.KVStore and CommitKVStore.
+type Store struct {
+	tree *smt.SparseMerkleTree
+	// mtx  sync.RWMutex
+}
+
+func NewStore(dbrw dbm.DBReadWriter) *Store {
+	return &Store{
+		tree: smt.NewSparseMerkleTree(dbrw, sha256.New()),
+	}
+}
+
+func LoadStore(dbrw dbm.DBReadWriter, root []byte) *Store {
+	return &Store{
+		tree: smt.ImportSparseMerkleTree(dbrw, sha256.New(), root),
+	}
+}
+
+func (s *Store) GetProof(key []byte) (*tmcrypto.ProofOps, error) {
+	proof, err := s.tree.Prove(key)
+	if err != nil {
+		return nil, err
+	}
+	op := NewProofOp(s.tree.Root(), key, SHA256, proof)
+	return &tmcrypto.ProofOps{Ops: []tmcrypto.ProofOp{op.ProofOp()}}, nil
+}
+
+func (s *Store) Root() []byte { return s.tree.Root() }
+
+// BasicKVStore interface below:
+
+// Get returns nil iff key doesn't exist. Panics on nil key.
+func (s *Store) Get(key []byte) []byte {
+	defer telemetry.MeasureSince(time.Now(), "store", "smt", "get")
+	val, err := s.tree.Get(key)
+	if err != nil {
+		panic(err)
+	}
+	return val
+}
+
+// Has checks if a key exists. Panics on nil key.
+func (s *Store) Has(key []byte) bool {
+	defer telemetry.MeasureSince(time.Now(), "store", "smt", "has")
+	has, err := s.tree.Has(key)
+	if err != nil {
+		panic(err)
+	}
+	return has
+}
+
+// Set sets the key. Panics on nil key or value.
+func (s *Store) Set(key []byte, value []byte) {
+	defer telemetry.MeasureSince(time.Now(), "store", "smt", "set")
+	kvHash := sha256.Sum256(append(key, value...))
+
+	_, err := s.tree.Update(key, kvHash[:])
+	if err != nil {
+		panic(err)
+	}
+}
+
+// Delete deletes the key. Panics on nil key.
+func (s *Store) Delete(key []byte) {
+	defer telemetry.MeasureSince(time.Now(), "store", "smt", "delete")
+
+	_, _ = s.tree.Delete(key)
+}
