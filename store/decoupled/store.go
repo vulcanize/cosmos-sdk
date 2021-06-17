@@ -33,7 +33,7 @@ var (
 
 var (
 	versionRootKey = []byte{0}
-	scPrefix       = []byte{1}
+	merklePrefix   = []byte{1}
 	dataPrefix     = []byte{2}
 	indexPrefix    = []byte{3}
 )
@@ -62,57 +62,57 @@ type dbHandle struct {
 }
 
 type Store struct {
-	ss, sc dbHandle
+	stateDB, merkleDB dbHandle
 	// SC KV store for current version
-	sckv *smt.Store
+	merkleStore *smt.Store
 
 	// opts storeOptions
 	mtx sync.RWMutex
 }
 
 // Create a new, empty store from a single DB
-// If scdb is nil, the same DB is used for SS and SC storage.
-func NewStore(db, scdb dbm.DB) (*Store, error) {
+// If merkdb is nil, the same DB is used for SS and SC storage.
+func NewStore(db, merkdb dbm.DB) (*Store, error) {
 	if saved := len(db.Versions()); saved != 0 {
 		return nil, fmt.Errorf("DB contains %v existing versions", saved)
 	}
-	ss := newDBHandle(db)
-	if scdb != nil {
+	stateDB := newDBHandle(db)
+	if merkdb != nil {
 		// Separate DBs for SS and SC
-		if saved := len(scdb.Versions()); saved != 0 {
+		if saved := len(merkdb.Versions()); saved != 0 {
 			return nil, fmt.Errorf("SC DB contains %v existing versions", saved)
 		}
 	} else {
-		scdb = db
+		merkdb = db
 	}
-	sc := newDBHandle(scdb)
+	merkleDB := newDBHandle(merkdb)
 	return &Store{
-		ss: ss, sc: sc,
+		stateDB: stateDB, merkleDB: merkleDB,
 		// Prefix still needed for separate SC DB since version key must be partitioned
-		sckv: smt.NewStore(dbm.NewPrefixReadWriter(sc, scPrefix)),
+		merkleStore: smt.NewStore(dbm.NewPrefixReadWriter(merkleDB, merklePrefix)),
 	}, nil
 }
 
 // Load existing store from a DB
-// If scdb is nil, the same DB is used for SS and SC storage.
-func LoadStore(db, scdb dbm.DB) (*Store, error) {
-	ss := newDBHandle(db)
-	if scdb != nil {
-		if db.CurrentVersion() != scdb.CurrentVersion() {
+// If merkdb is nil, the same DB is used for SS and SC storage.
+func LoadStore(db, merkdb dbm.DB) (*Store, error) {
+	stateDB := newDBHandle(db)
+	if merkdb != nil {
+		if db.CurrentVersion() != merkdb.CurrentVersion() {
 			return nil, fmt.Errorf("Current version of SS (%v) and SC (%v) DBs do not match",
-				db.CurrentVersion(), scdb.CurrentVersion())
+				db.CurrentVersion(), merkdb.CurrentVersion())
 		}
 	} else {
-		scdb = db
+		merkdb = db
 	}
-	sc := newDBHandle(scdb)
-	root, err := sc.Get(versionRootKey)
+	merkleDB := newDBHandle(merkdb)
+	root, err := merkleDB.Get(versionRootKey)
 	if err != nil {
 		panic(err)
 	}
 	return &Store{
-		ss: ss, sc: sc,
-		sckv: smt.LoadStore(dbm.NewPrefixReadWriter(sc, scPrefix), root),
+		stateDB: stateDB, merkleDB: merkleDB,
+		merkleStore: smt.LoadStore(dbm.NewPrefixReadWriter(merkleDB, merklePrefix), root),
 	}, nil
 }
 
@@ -132,17 +132,17 @@ func lastVersion(db dbm.DB) int64 {
 // prefixer is cheap to create, so just wrap in this call
 
 func (s *Store) contents() dbm.DBReadWriter {
-	return dbm.NewPrefixReadWriter(s.ss, dataPrefix)
+	return dbm.NewPrefixReadWriter(s.stateDB, dataPrefix)
 }
 func (s *Store) index() dbm.DBReadWriter {
-	return dbm.NewPrefixReadWriter(s.ss, indexPrefix)
+	return dbm.NewPrefixReadWriter(s.stateDB, indexPrefix)
 }
 
-func (s *Store) separateDBs() bool { return s.ss.conn != s.sc.conn }
+func (s *Store) separateDBs() bool { return s.stateDB.conn != s.merkleDB.conn }
 
 // Access the underlying SMT as a basic KV store
 func (s *Store) GetSCStore() types.BasicKVStore {
-	return s.sckv
+	return s.merkleStore
 }
 
 // Get implements KVStore.
@@ -182,7 +182,7 @@ func (s *Store) Set(key []byte, value []byte) {
 	if err != nil {
 		panic(err.Error())
 	}
-	s.sckv.Set(key, kvHash[:])
+	s.merkleStore.Set(key, kvHash[:])
 }
 
 // Delete implements KVStore.
@@ -190,13 +190,13 @@ func (s *Store) Delete(key []byte) {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
 
-	kvHash := s.sckv.Get(key)
+	kvHash := s.merkleStore.Get(key)
 
 	_, err := s.contents().Get(key)
 	if err != nil {
 		panic(err)
 	}
-	s.sckv.Delete(key)
+	s.merkleStore.Delete(key)
 	_ = s.index().Delete(kvHash[:])
 	_ = s.contents().Delete(key)
 }
@@ -241,35 +241,34 @@ func (s *Store) CacheWrapWithListeners(storeKey types.StoreKey, listeners []type
 
 // Commit implements Committer.
 func (s *Store) Commit() types.CommitID {
-	root := s.sckv.Root()
-	s.sc.Set(versionRootKey, root)
-	s.sc.Commit()
-	s.ss.Commit()
-	s.ss.conn.SaveVersion()
+	root := s.merkleStore.Root()
+	s.merkleDB.Set(versionRootKey, root)
+	s.merkleDB.Commit()
+	s.stateDB.Commit()
+	s.stateDB.conn.SaveVersion()
 
 	// TODO: more elegant solution?
 	if s.separateDBs() {
-		scver := s.sc.conn.SaveVersion()
-		if last := lastVersion(s.ss.conn); last != int64(scver) {
+		scver := s.merkleDB.conn.SaveVersion()
+		if last := lastVersion(s.stateDB.conn); last != int64(scver) {
 			panic(fmt.Errorf("Latest version of SS (%v) and SC (%v) DBs do not match", last, scver))
 		}
 	}
 
-	s.sc = newDBHandle(s.sc.conn)
-	s.ss = newDBHandle(s.ss.conn)
-	s.sckv = smt.LoadStore(dbm.NewPrefixReadWriter(s.sc, scPrefix), root)
+	s.merkleDB = newDBHandle(s.merkleDB.conn)
+	s.merkleStore = smt.LoadStore(dbm.NewPrefixReadWriter(s.merkleDB, merklePrefix), root)
+	s.stateDB = newDBHandle(s.stateDB.conn)
 	return s.LastCommitID()
 }
 
 // LastCommitID implements KVStore.
 func (s *Store) LastCommitID() types.CommitID {
-	last := lastVersion(s.ss.conn)
+	last := lastVersion(s.stateDB.conn)
 	if last == 0 {
 		return types.CommitID{}
 	}
-	// dbr := s.sc.conn.NewReaderAt(uint64(last))
 	// Latest Merkle root should be the one currently stored
-	hash, err := s.sc.Get(versionRootKey)
+	hash, err := s.merkleDB.Get(versionRootKey)
 	if err != nil {
 		panic(err)
 	}
@@ -288,12 +287,8 @@ func (s *Store) versionExists(version int64) bool {
 	if version < 0 {
 		return false
 	}
-	r := s.ss.conn.NewReaderAt(uint64(version))
+	r := s.stateDB.conn.NewReaderAt(uint64(version))
 	return r != nil
-	// for _, valid := range s.ss.Versions() {
-	//	if valid == uint64(version) { return true}
-	// }
-	// return false
 }
 
 // Query implements ABCI interface, allows queries.
@@ -313,7 +308,7 @@ func (s *Store) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
 	// if height is 0, use the latest height
 	height := req.Height
 	if height == 0 {
-		latest := lastVersion(s.ss.conn)
+		latest := lastVersion(s.stateDB.conn)
 		if s.versionExists(latest - 1) {
 			height = latest - 1
 		} else {
@@ -327,7 +322,7 @@ func (s *Store) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
 		var err error
 		res.Key = req.Data // data holds the key bytes
 
-		dbr := s.ss.conn.NewReaderAt(uint64(height))
+		dbr := s.stateDB.conn.NewReaderAt(uint64(height))
 		defer dbr.Discard()
 		if dbr == nil {
 			return sdkerrors.QueryResult(sdkerrors.ErrInvalidHeight)
@@ -340,7 +335,7 @@ func (s *Store) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
 		if !req.Prove {
 			break
 		}
-		scr := s.sc.conn.NewReaderAt(uint64(height))
+		scr := s.merkleDB.conn.NewReaderAt(uint64(height))
 		defer scr.Discard()
 		if scr == nil {
 			return sdkerrors.QueryResult(sdkerrors.ErrInvalidHeight)
@@ -349,8 +344,8 @@ func (s *Store) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
 		if err != nil {
 			panic(err)
 		}
-		sc := smt.LoadStore(dbm.NewWriterFromReader(dbm.NewPrefixReader(scr, scPrefix)), root)
-		res.ProofOps, err = sc.GetProof(res.Key)
+		merkleDB := smt.LoadStore(dbm.NewWriterFromReader(dbm.NewPrefixReader(scr, merklePrefix)), root)
+		res.ProofOps, err = merkleDB.GetProof(res.Key)
 		if err != nil {
 			panic(err)
 		}
