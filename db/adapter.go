@@ -6,7 +6,7 @@ type readerRWAdapter struct{ DBReader }
 
 var (
 	// ErrReadOnly is returned when a write operation is attempted on a read-only transaction.
-	ErrReadOnly = errors.New("Cannot modify read-only transaction")
+	ErrReadOnly = errors.New("cannot modify read-only transaction")
 )
 
 // Returns a ReadWriter that forwards to a reader and errors if writes are
