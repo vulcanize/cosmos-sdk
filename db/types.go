@@ -21,6 +21,9 @@ var (
 // Past versions are read-only
 // TODO: rename to Connection?
 type DB interface {
+	// Opens a read-only transaction at the current working version.
+	Reader() DBReader
+
 	// Opens a read-only transaction at a specified version.
 	// Returns nil for invalid versions.
 	ReaderAt(uint64) DBReader
@@ -28,27 +31,21 @@ type DB interface {
 	// Opens a read-write transaction at the current version.
 	ReadWriter() DBReadWriter
 
-	// Returns ID of current version of database contents.
-	CurrentVersion() uint64
+	// Opens a write-only transaction at the current version.
+	Writer() DBWriter
 
 	// Returns all saved versions
-	Versions() []uint64
+	Versions() VersionSet
 
 	// Saves the current version of the database and returns its ID.
-	// TODO: either
-	// * Waits for any pending RW transactions to be discarded.
-	// - Calls Discard() on any pending transactions. (or only RW txns?)
+	// Waits for any pending Writer transactions to be discarded. TODO: is an error preferred?
 	SaveVersion() uint64
-
-	// Print is used for debugging.
-	// TODO: surely this can be done generically by iterating?
-	// Print() error
-
-	// Stats returns a map of property values for all keys and the size of the cache.
-	Stats() map[string]string
 
 	// Close closes the database connection.
 	Close() error
+
+	// Stats returns a map of property values for all keys and the size of the cache.
+	Stats() map[string]string
 }
 
 // TODO: rename to batch/transaction?
@@ -159,4 +156,16 @@ type Iterator interface {
 
 	// Close closes the iterator, relasing any allocated resources.
 	Close() error
+}
+
+// VersionSet specifies a set of existing versions
+type VersionSet interface {
+	// Last returns the most recent saved version, or 0 if none
+	Last() uint64
+	// Initial returns the first saved version, or 0 if none
+	Initial() uint64
+	// Count returns the number of saved versions
+	Count() int
+	// All returns all saved versions as an ordered slice
+	All() []uint64
 }
