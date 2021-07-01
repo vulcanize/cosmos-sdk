@@ -3,6 +3,7 @@ package memdb
 import (
 	"testing"
 
+	dbm "github.com/cosmos/cosmos-sdk/db"
 	"github.com/cosmos/cosmos-sdk/db/dbtest"
 )
 
@@ -27,14 +28,22 @@ func BenchmarkMemDBRandomReadsWrites(b *testing.B) {
 	dbtest.BenchmarkRandomReadsWrites(b, db)
 }
 
+func load(t *testing.T, _ string) dbm.DB {
+	return NewDB()
+}
+
 func TestGetSetHasDelete(t *testing.T) {
-	conn := NewDB()
-	defer conn.Close()
-	dbtest.TestGetSetHasDelete(t, conn)
+	dbtest.DoTestGetSetHasDelete(t, load)
+}
+
+func TestIterators(t *testing.T) {
+	dbtest.DoTestIterators(t, load)
 }
 
 func TestVersioning(t *testing.T) {
-	conn := NewDB()
-	defer conn.Close()
-	dbtest.TestVersioning(t, conn)
+	dbtest.DoTestVersioning(t, load)
 }
+
+// func TestTransactions(t *testing.T) {
+// 	dbtest.DoTestTransactions(t, load)
+// }

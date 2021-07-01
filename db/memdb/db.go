@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"sync"
 
-	tmdb "github.com/cosmos/cosmos-sdk/db"
+	dbm "github.com/cosmos/cosmos-sdk/db"
 	"github.com/google/btree"
 )
 
 const (
 	// The approximate number of items and children per B-tree node. Tuned with benchmarks.
-	bTreeDegree = 32
+	bTreeDegree    = 32
+	initialVersion = 1
 )
 
 // item is a btree.Item with byte slices as keys and values
@@ -53,9 +54,9 @@ type dbVersion struct {
 	btree *btree.BTree
 }
 
-var _ tmdb.DB = (*MemDB)(nil)
-var _ tmdb.DBReader = (*dbVersion)(nil)
-var _ tmdb.DBReadWriter = (*dbVersion)(nil)
+var _ dbm.DB = (*MemDB)(nil)
+var _ dbm.DBReader = (*dbVersion)(nil)
+var _ dbm.DBReadWriter = (*dbVersion)(nil)
 
 // NewDB creates a new in-memory database.
 func NewDB() *MemDB {
@@ -70,35 +71,35 @@ func (db *MemDB) Close() error {
 	return nil
 }
 
-func (db *MemDB) InitialVersion() uint64 {
-	return 1
-}
-
-func (db *MemDB) Versions() []uint64 {
+func (db *MemDB) Versions() dbm.VersionSet {
 	var ret []uint64
 	for i := range db.saved {
 		ret = append(ret, uint64(i+1))
 	}
-	return ret
+	return dbm.NewVersionManager(ret)
 }
 
 func (db *MemDB) CurrentVersion() uint64 {
-	return uint64(len(db.saved)) + db.InitialVersion()
+	return uint64(len(db.saved)) + initialVersion
 }
 
-func (db *MemDB) ReaderAt(version uint64) tmdb.DBReader {
-	// allows AtVersion(current), desired? todo
-	if version == db.CurrentVersion() {
-		return &db.dbVersion
-	}
-	version -= db.InitialVersion()
+func (db *MemDB) Reader() dbm.DBReader {
+	return &db.dbVersion
+}
+
+func (db *MemDB) Writer() dbm.DBWriter {
+	return nil // TODO
+}
+
+func (db *MemDB) ReaderAt(version uint64) dbm.DBReader {
+	version -= initialVersion
 	if version >= uint64(len(db.saved)) {
 		return nil
 	}
 	return &dbVersion{btree: db.saved[version]}
 }
 
-func (db *MemDB) ReadWriter() tmdb.DBReadWriter {
+func (db *MemDB) ReadWriter() dbm.DBReadWriter {
 	return &db.dbVersion
 }
 
@@ -115,7 +116,7 @@ func (db *MemDB) SaveVersion() uint64 {
 // Get implements DB.
 func (db *dbVersion) Get(key []byte) ([]byte, error) {
 	if len(key) == 0 {
-		return nil, tmdb.ErrKeyEmpty
+		return nil, dbm.ErrKeyEmpty
 	}
 	db.mtx.RLock()
 	defer db.mtx.RUnlock()
@@ -130,7 +131,7 @@ func (db *dbVersion) Get(key []byte) ([]byte, error) {
 // Has implements DB.
 func (db *dbVersion) Has(key []byte) (bool, error) {
 	if len(key) == 0 {
-		return false, tmdb.ErrKeyEmpty
+		return false, dbm.ErrKeyEmpty
 	}
 	db.mtx.RLock()
 	defer db.mtx.RUnlock()
@@ -141,10 +142,10 @@ func (db *dbVersion) Has(key []byte) (bool, error) {
 // Set implements DB.
 func (db *dbVersion) Set(key []byte, value []byte) error {
 	if len(key) == 0 {
-		return tmdb.ErrKeyEmpty
+		return dbm.ErrKeyEmpty
 	}
 	if value == nil {
-		return tmdb.ErrValueNil
+		return dbm.ErrValueNil
 	}
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
@@ -161,7 +162,7 @@ func (db *dbVersion) set(key []byte, value []byte) {
 // Delete implements DB.
 func (db *dbVersion) Delete(key []byte) error {
 	if len(key) == 0 {
-		return tmdb.ErrKeyEmpty
+		return dbm.ErrKeyEmpty
 	}
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
@@ -177,18 +178,18 @@ func (db *dbVersion) delete(key []byte) {
 
 // Iterator implements DB.
 // Takes out a read-lock on the database until the iterator is closed.
-func (db *dbVersion) Iterator(start, end []byte) (tmdb.Iterator, error) {
+func (db *dbVersion) Iterator(start, end []byte) (dbm.Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
-		return nil, tmdb.ErrKeyEmpty
+		return nil, dbm.ErrKeyEmpty
 	}
 	return newMemDBIterator(db, start, end, false), nil
 }
 
 // ReverseIterator implements DB.
 // Takes out a read-lock on the database until the iterator is closed.
-func (db *dbVersion) ReverseIterator(start, end []byte) (tmdb.Iterator, error) {
+func (db *dbVersion) ReverseIterator(start, end []byte) (dbm.Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
-		return nil, tmdb.ErrKeyEmpty
+		return nil, dbm.ErrKeyEmpty
 	}
 	return newMemDBIterator(db, start, end, true), nil
 }
