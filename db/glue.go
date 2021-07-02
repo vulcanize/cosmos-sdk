@@ -4,9 +4,14 @@ import (
 	tmdb "github.com/tendermint/tm-db"
 )
 
-// FIXME: hack, remove
+// FIXME: This adapter is used to wrap objects conforming to the new
+// DB interface so that they support the old tm-db interface, and vice
+// versa. This is needed as an intermediate step in introducing the
+// new interface without refactoring all of the existing multi-store
+// and IAVL code, as they are both likely to be deprecated before the
+// ADR is completely implemented.
 
-// Pretend a new DBRW is a tm-db DB
+// Pretends a new DBRW is a tm-db DB
 type tmdbAdapterMunge struct {
 	DBReadWriter
 }
@@ -29,7 +34,7 @@ func (d tmdbAdapterMunge) NewBatch() tmdb.Batch     { return nil }
 func (d tmdbAdapterMunge) Print() error             { return nil }
 func (d tmdbAdapterMunge) Stats() map[string]string { return nil }
 
-// Pretend a tm-db DB is DBRW
+// Pretends a tm-db DB is DBRW
 type dbrwAdapterMunge struct {
 	tmdb.DB
 }
