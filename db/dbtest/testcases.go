@@ -16,6 +16,7 @@ func ikey(i int) []byte { return []byte(fmt.Sprintf("key-%03d", i)) }
 func ival(i int) []byte { return []byte(fmt.Sprintf("val-%03d", i)) }
 
 func DoTestGetSetHasDelete(t *testing.T, load Loader) {
+	t.Helper()
 	db := load(t, t.TempDir())
 
 	var txn dbm.DBReadWriter
@@ -111,6 +112,7 @@ func DoTestGetSetHasDelete(t *testing.T, load Loader) {
 }
 
 func DoTestIterators(t *testing.T, load Loader) {
+	t.Helper()
 	db := load(t, t.TempDir())
 	type entry struct {
 		key []byte
@@ -184,6 +186,7 @@ func DoTestIterators(t *testing.T, load Loader) {
 }
 
 func DoTestVersioning(t *testing.T, load Loader) {
+	t.Helper()
 	db := load(t, t.TempDir())
 	view := db.Reader()
 	require.NotNil(t, view)
@@ -238,6 +241,7 @@ func DoTestVersioning(t *testing.T, load Loader) {
 }
 
 func DoTestTransactions(t *testing.T, load Loader) {
+	t.Helper()
 	db := load(t, t.TempDir())
 
 	// Writing separately to same key causes a conflict
@@ -274,6 +278,7 @@ func DoTestTransactions(t *testing.T, load Loader) {
 }
 
 func DoTestReloadDB(t *testing.T, load Loader) {
+	t.Helper()
 	dirname := t.TempDir()
 	db := load(t, dirname)
 

@@ -16,7 +16,7 @@ var (
 	// ErrVersionDoesNotExist = errors.New("version does not exist")
 )
 
-// Represents a connection to a versioned database.
+// DB represents a connection to a versioned database.
 // K/V access is defined on the transaction objects
 // Past versions are read-only
 // TODO: rename to Connection?

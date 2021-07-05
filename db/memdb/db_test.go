@@ -43,7 +43,3 @@ func TestIterators(t *testing.T) {
 func TestVersioning(t *testing.T) {
 	dbtest.DoTestVersioning(t, load)
 }
-
-// func TestTransactions(t *testing.T) {
-// 	dbtest.DoTestTransactions(t, load)
-// }

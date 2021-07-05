@@ -29,7 +29,7 @@ func mockDBWithStuff(t *testing.T) tmdb.DB {
 }
 
 func makePrefixReader(t *testing.T, db tmdb.DB, pre []byte) tmdb.DBReader {
-	view := db.ReaderAt(db.CurrentVersion())
+	view := db.Reader()
 	require.NotNil(t, view)
 	return tmdb.NewPrefixReader(view, pre)
 }

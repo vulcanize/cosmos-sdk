@@ -11,9 +11,6 @@ import (
 	dbm "github.com/cosmos/cosmos-sdk/db"
 )
 
-//----------------------------------------
-// Helper functions.
-
 func Valid(t *testing.T, itr dbm.Iterator, expected bool) {
 	valid := itr.Valid()
 	require.Equal(t, expected, valid)
