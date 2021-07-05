@@ -18,7 +18,7 @@ type tmdbAdapterMunge struct {
 
 var _ tmdb.DB = tmdbAdapterMunge{}
 
-func MungeTmdb(db DBReadWriter) tmdbAdapterMunge { return tmdbAdapterMunge{DBReadWriter: db} }
+func MungeTmdb(db DBReadWriter) tmdbAdapterMunge { return tmdbAdapterMunge{db} }
 
 func (d tmdbAdapterMunge) Close() error { d.Discard(); return nil }
 
@@ -41,7 +41,7 @@ type dbrwAdapterMunge struct {
 
 var _ DBReadWriter = dbrwAdapterMunge{}
 
-func MungeDBRW(db tmdb.DB) dbrwAdapterMunge { return dbrwAdapterMunge{DB: db} }
+func MungeDBRW(db tmdb.DB) dbrwAdapterMunge { return dbrwAdapterMunge{db} }
 
 func (d dbrwAdapterMunge) Commit() error { return nil }
 func (d dbrwAdapterMunge) Discard()      { d.Close() }
