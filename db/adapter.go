@@ -12,7 +12,7 @@ var (
 // Returns a ReadWriter that forwards to a reader and errors if writes are
 // attempted. Can be used to pass a Reader when a ReadWriter is expected
 // but no writes will actually occur.
-func NewReadWriterFromReader(r DBReader) DBReadWriter {
+func ReaderAsReadWriter(r DBReader) DBReadWriter {
 	return readerRWAdapter{r}
 }
 

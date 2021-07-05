@@ -87,16 +87,16 @@ func (db *MemDB) Reader() dbm.DBReader {
 	return &db.dbVersion
 }
 
-func (db *MemDB) Writer() dbm.DBWriter {
-	return nil // TODO
-}
-
 func (db *MemDB) ReaderAt(version uint64) dbm.DBReader {
 	version -= initialVersion
 	if version >= uint64(len(db.saved)) {
 		return nil
 	}
 	return &dbVersion{btree: db.saved[version]}
+}
+
+func (db *MemDB) Writer() dbm.DBWriter {
+	return &db.dbVersion
 }
 
 func (db *MemDB) ReadWriter() dbm.DBReadWriter {
