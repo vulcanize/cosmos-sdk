@@ -244,6 +244,18 @@ func DoTestTransactions(t *testing.T, load Loader) {
 	t.Helper()
 	db := load(t, t.TempDir())
 
+	// Uncommitted records are not saved
+	t.Run("no commit", func(t *testing.T) {
+		view := db.Reader()
+		defer view.Discard()
+		tx := db.ReadWriter()
+		defer tx.Discard()
+		require.NoError(t, tx.Set([]byte("0"), []byte("a")))
+		v, err := view.Get([]byte("0"))
+		require.NoError(t, err)
+		require.Nil(t, v)
+	})
+
 	// Writing separately to same key causes a conflict
 	t.Run("write conflict", func(t *testing.T) {
 		tx1 := db.ReadWriter()
@@ -270,6 +282,7 @@ func DoTestTransactions(t *testing.T, load Loader) {
 		}
 		wg.Wait()
 		view := db.Reader()
+		defer view.Discard()
 		v, err := view.Get(ikey(0))
 		require.NoError(t, err)
 		require.Equal(t, ival(0), v)
