@@ -11,13 +11,13 @@ import (
 	dbm "github.com/cosmos/cosmos-sdk/db"
 )
 
-func Int642Bytes(i int64) []byte {
+func Int64ToBytes(i int64) []byte {
 	buf := make([]byte, 8)
 	binary.BigEndian.PutUint64(buf, uint64(i))
 	return buf
 }
 
-func Bytes2Int64(buf []byte) int64 {
+func BytesToInt64(buf []byte) int64 {
 	return int64(binary.BigEndian.Uint64(buf))
 }
 
@@ -30,7 +30,7 @@ func BenchmarkRangeScans(b *testing.B, db dbm.DBReadWriter, dbSize int64) {
 	}
 
 	for i := int64(0); i < dbSize; i++ {
-		bytes := Int642Bytes(i)
+		bytes := Int64ToBytes(i)
 		err := db.Set(bytes, bytes)
 		if err != nil {
 			// require.NoError() is very expensive (according to profiler), so check manually
@@ -43,7 +43,7 @@ func BenchmarkRangeScans(b *testing.B, db dbm.DBReadWriter, dbSize int64) {
 
 		start := rand.Int63n(dbSize - rangeSize) // nolint: gosec
 		end := start + rangeSize
-		iter, err := db.Iterator(Int642Bytes(start), Int642Bytes(end))
+		iter, err := db.Iterator(Int64ToBytes(start), Int64ToBytes(end))
 		require.NoError(b, err)
 		count := 0
 		for ; iter.Valid(); iter.Next() {
@@ -71,8 +71,8 @@ func BenchmarkRandomReadsWrites(b *testing.B, db dbm.DBReadWriter) {
 			idx := rand.Int63n(numItems) // nolint: gosec
 			internal[idx]++
 			val := internal[idx]
-			idxBytes := Int642Bytes(idx)
-			valBytes := Int642Bytes(val)
+			idxBytes := Int64ToBytes(idx)
+			valBytes := Int64ToBytes(val)
 			err := db.Set(idxBytes, valBytes)
 			if err != nil {
 				// require.NoError() is very expensive (according to profiler), so check manually
@@ -83,7 +83,7 @@ func BenchmarkRandomReadsWrites(b *testing.B, db dbm.DBReadWriter) {
 		{
 			idx := rand.Int63n(numItems) // nolint: gosec
 			valExp := internal[idx]
-			idxBytes := Int642Bytes(idx)
+			idxBytes := Int64ToBytes(idx)
 			valBytes, err := db.Get(idxBytes)
 			if err != nil {
 				b.Fatal(b, err)
@@ -98,7 +98,7 @@ func BenchmarkRandomReadsWrites(b *testing.B, db dbm.DBReadWriter) {
 					b.Errorf("Expected length 8 for %v, got %X", idx, valBytes)
 					break
 				}
-				valGot := Bytes2Int64(valBytes)
+				valGot := BytesToInt64(valBytes)
 				if valExp != valGot {
 					b.Errorf("Expected %v for %v, got %v", valExp, idx, valGot)
 					break
