@@ -9,7 +9,7 @@ var (
 	ErrReadOnly = errors.New("cannot modify read-only transaction")
 )
 
-// Returns a ReadWriter that forwards to a reader and errors if writes are
+// ReaderAsReadWriter returns a ReadWriter that forwards to a reader and errors if writes are
 // attempted. Can be used to pass a Reader when a ReadWriter is expected
 // but no writes will actually occur.
 func ReaderAsReadWriter(r DBReader) DBReadWriter {

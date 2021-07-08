@@ -34,6 +34,7 @@ func cpIncr(bz []byte) (ret []byte) {
 	return nil
 }
 
+// IsKeyInDomain returns true iff a key lies within a domain.
 // See DB interface documentation for more information.
 func IsKeyInDomain(key, start, end []byte) bool {
 	if bytes.Compare(key, start) < 0 {
@@ -45,6 +46,7 @@ func IsKeyInDomain(key, start, end []byte) bool {
 	return true
 }
 
+// FileExists returns true iff a file path exists.
 func FileExists(filePath string) bool {
 	_, err := os.Stat(filePath)
 	return !os.IsNotExist(err)

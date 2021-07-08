@@ -16,10 +16,10 @@ var (
 	// ErrVersionDoesNotExist = errors.New("version does not exist")
 )
 
-// DB represents a connection to a versioned database.
-// K/V access is defined on the transaction objects
-// Past versions are read-only
-// TODO: rename to Connection?
+// Connection represents a connection to a versioned database.
+// Records are accessed via transaction objects, and must be safe for concurrent creation
+// and read and write access.
+// Past versions are only accessible read-only.
 type DB interface {
 	// Opens a read-only transaction at the current working version.
 	Reader() DBReader
@@ -49,9 +49,8 @@ type DB interface {
 }
 
 // TODO: rename to batch/transaction?
-// The main DB access interface. Follows BadgerDB semantics , batches are
-// concurrency-safe, and produce errors on write conflicts.
-// Callers must call Close on the batch when done.
+// DBReader is a read-only transaction interface. It is safe for concurrent access.
+// Callers must call Discard when done with the transaction.
 //
 // Keys cannot be nil or empty, while values cannot be nil. Keys and values should be considered
 // read-only, both when returned and when given, and must be copied before they are modified.
@@ -84,7 +83,10 @@ type DBReader interface {
 	Discard()
 }
 
-// A write-only batch; can be used to wrap write-optimized batches
+// DBWriter is a write-only transaction interface.
+// It is safe for concurrent writes, following an optimistic (OCC) strategy, detecting any write
+// conflicts and returning an error on commit, rather than locking the DB.
+// This can be used to wrap a write-optimized batch object if provided by the backend implementation.
 type DBWriter interface {
 	// Set sets the value for the given key, replacing it if it already exists.
 	// CONTRACT: key, value readonly []byte
@@ -102,7 +104,7 @@ type DBWriter interface {
 	Discard()
 }
 
-// A batch/transaction that is capable of reading and writing to the backing DB.
+// DBReadWriter is a transaction interface that allows both reading and writing.
 type DBReadWriter interface {
 	DBReader
 	DBWriter
