@@ -51,3 +51,67 @@ func FileExists(filePath string) bool {
 	_, err := os.Stat(filePath)
 	return !os.IsNotExist(err)
 }
+
+// Encapsulates valid and next versions
+type VersionManager struct {
+	versions []uint64
+	// initial uint64
+}
+
+func NewVersionManager(versions []uint64) *VersionManager {
+	return &VersionManager{versions: versions}
+}
+
+func (vm *VersionManager) Valid(version uint64) bool {
+	// todo: maybe use map to avoid linear search
+	for _, ver := range vm.versions {
+		if ver == version {
+			return true
+		}
+	}
+	return false
+}
+
+func (vm *VersionManager) Initial() uint64 {
+	if len(vm.versions) == 0 {
+		return 1
+	}
+	return vm.versions[0]
+}
+
+func (vm *VersionManager) Last() uint64 {
+	if len(vm.versions) == 0 {
+		return 0
+	} else {
+		return vm.versions[len(vm.versions)-1]
+	}
+}
+
+func (vm *VersionManager) Next() uint64 {
+	return vm.Last() + 1
+}
+
+func (vm *VersionManager) Save() uint64 {
+	id := vm.Next()
+	vm.versions = append(vm.versions, id)
+	return id
+}
+
+var _ VersionSet = (*VersionManager)(nil)
+
+func (vm *VersionManager) All() []uint64 { return vm.versions }
+func (vm *VersionManager) Count() int    { return len(vm.versions) }
+
+func (vm *VersionManager) Equal(that VersionSet) bool {
+	mine := vm.All()
+	theirs := that.All()
+	if len(mine) != len(theirs) {
+		return false
+	}
+	for i, v := range mine {
+		if v != theirs[i] {
+			return false
+		}
+	}
+	return true
+}
