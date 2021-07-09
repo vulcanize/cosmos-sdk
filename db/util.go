@@ -52,10 +52,9 @@ func FileExists(filePath string) bool {
 	return !os.IsNotExist(err)
 }
 
-// Encapsulates valid and next versions
+// Encapsulates the current valid versions and computes the next version.
 type VersionManager struct {
 	versions []uint64
-	// initial uint64
 }
 
 func NewVersionManager(versions []uint64) *VersionManager {
