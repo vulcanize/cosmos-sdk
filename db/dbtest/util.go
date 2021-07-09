@@ -11,29 +11,29 @@ import (
 	dbm "github.com/cosmos/cosmos-sdk/db"
 )
 
-func Valid(t *testing.T, itr dbm.Iterator, expected bool) {
+func AssertValid(t *testing.T, itr dbm.Iterator, expected bool) {
 	valid := itr.Valid()
 	require.Equal(t, expected, valid)
 }
 
-func Next(t *testing.T, itr dbm.Iterator, expected bool) {
+func AssertNext(t *testing.T, itr dbm.Iterator, expected bool) {
 	itr.Next()
 	// assert.NoError(t, err) TODO: look at fixing this
 	valid := itr.Valid()
 	require.Equal(t, expected, valid)
 }
 
-func NextPanics(t *testing.T, itr dbm.Iterator) {
+func AssertNextPanics(t *testing.T, itr dbm.Iterator) {
 	assert.Panics(t, func() { itr.Next() }, "checkNextPanics expected an error but didn't")
 }
 
-func Domain(t *testing.T, itr dbm.Iterator, start, end []byte) {
+func AssertDomain(t *testing.T, itr dbm.Iterator, start, end []byte) {
 	ds, de := itr.Domain()
 	assert.Equal(t, start, ds, "checkDomain domain start incorrect")
 	assert.Equal(t, end, de, "checkDomain domain end incorrect")
 }
 
-func Item(t *testing.T, itr dbm.Iterator, key []byte, value []byte) {
+func AssertItem(t *testing.T, itr dbm.Iterator, key []byte, value []byte) {
 	v := itr.Value()
 
 	k := itr.Key()
@@ -42,24 +42,24 @@ func Item(t *testing.T, itr dbm.Iterator, key []byte, value []byte) {
 	assert.Exactly(t, value, v)
 }
 
-func Invalid(t *testing.T, itr dbm.Iterator) {
-	Valid(t, itr, false)
-	KeyPanics(t, itr)
-	ValuePanics(t, itr)
-	NextPanics(t, itr)
+func AssertInvalid(t *testing.T, itr dbm.Iterator) {
+	AssertValid(t, itr, false)
+	AssertKeyPanics(t, itr)
+	AssertValuePanics(t, itr)
+	AssertNextPanics(t, itr)
 }
 
-func KeyPanics(t *testing.T, itr dbm.Iterator) {
+func AssertKeyPanics(t *testing.T, itr dbm.Iterator) {
 	assert.Panics(t, func() { itr.Key() }, "checkKeyPanics expected panic but didn't")
 }
 
-func Value(t *testing.T, db dbm.DBReader, key []byte, valueWanted []byte) {
+func AssertValue(t *testing.T, db dbm.DBReader, key []byte, valueWanted []byte) {
 	valueGot, err := db.Get(key)
 	assert.NoError(t, err)
 	assert.Equal(t, valueWanted, valueGot)
 }
 
-func ValuePanics(t *testing.T, itr dbm.Iterator) {
+func AssertValuePanics(t *testing.T, itr dbm.Iterator) {
 	assert.Panics(t, func() { itr.Value() })
 }
 

@@ -37,17 +37,17 @@ func makePrefixReader(t *testing.T, db tmdb.DB, pre []byte) tmdb.DBReader {
 func TestPrefixDBSimple(t *testing.T) {
 	pdb := makePrefixReader(t, mockDBWithStuff(t), []byte("key"))
 
-	dbtest.Value(t, pdb, []byte("key"), nil)
-	dbtest.Value(t, pdb, []byte("key1"), nil)
-	dbtest.Value(t, pdb, []byte("1"), []byte("value1"))
-	dbtest.Value(t, pdb, []byte("key2"), nil)
-	dbtest.Value(t, pdb, []byte("2"), []byte("value2"))
-	dbtest.Value(t, pdb, []byte("key3"), nil)
-	dbtest.Value(t, pdb, []byte("3"), []byte("value3"))
-	dbtest.Value(t, pdb, []byte("something"), nil)
-	dbtest.Value(t, pdb, []byte("k"), nil)
-	dbtest.Value(t, pdb, []byte("ke"), nil)
-	dbtest.Value(t, pdb, []byte("kee"), nil)
+	dbtest.AssertValue(t, pdb, []byte("key"), nil)
+	dbtest.AssertValue(t, pdb, []byte("key1"), nil)
+	dbtest.AssertValue(t, pdb, []byte("1"), []byte("value1"))
+	dbtest.AssertValue(t, pdb, []byte("key2"), nil)
+	dbtest.AssertValue(t, pdb, []byte("2"), []byte("value2"))
+	dbtest.AssertValue(t, pdb, []byte("key3"), nil)
+	dbtest.AssertValue(t, pdb, []byte("3"), []byte("value3"))
+	dbtest.AssertValue(t, pdb, []byte("something"), nil)
+	dbtest.AssertValue(t, pdb, []byte("k"), nil)
+	dbtest.AssertValue(t, pdb, []byte("ke"), nil)
+	dbtest.AssertValue(t, pdb, []byte("kee"), nil)
 }
 
 func TestPrefixDBIterator1(t *testing.T) {
@@ -55,14 +55,14 @@ func TestPrefixDBIterator1(t *testing.T) {
 
 	itr, err := pdb.Iterator(nil, nil)
 	require.NoError(t, err)
-	dbtest.Domain(t, itr, nil, nil)
-	dbtest.Item(t, itr, []byte("1"), []byte("value1"))
-	dbtest.Next(t, itr, true)
-	dbtest.Item(t, itr, []byte("2"), []byte("value2"))
-	dbtest.Next(t, itr, true)
-	dbtest.Item(t, itr, []byte("3"), []byte("value3"))
-	dbtest.Next(t, itr, false)
-	dbtest.Invalid(t, itr)
+	dbtest.AssertDomain(t, itr, nil, nil)
+	dbtest.AssertItem(t, itr, []byte("1"), []byte("value1"))
+	dbtest.AssertNext(t, itr, true)
+	dbtest.AssertItem(t, itr, []byte("2"), []byte("value2"))
+	dbtest.AssertNext(t, itr, true)
+	dbtest.AssertItem(t, itr, []byte("3"), []byte("value3"))
+	dbtest.AssertNext(t, itr, false)
+	dbtest.AssertInvalid(t, itr)
 	itr.Close()
 }
 
@@ -71,14 +71,14 @@ func TestPrefixDBReverseIterator1(t *testing.T) {
 
 	itr, err := pdb.ReverseIterator(nil, nil)
 	require.NoError(t, err)
-	dbtest.Domain(t, itr, nil, nil)
-	dbtest.Item(t, itr, []byte("3"), []byte("value3"))
-	dbtest.Next(t, itr, true)
-	dbtest.Item(t, itr, []byte("2"), []byte("value2"))
-	dbtest.Next(t, itr, true)
-	dbtest.Item(t, itr, []byte("1"), []byte("value1"))
-	dbtest.Next(t, itr, false)
-	dbtest.Invalid(t, itr)
+	dbtest.AssertDomain(t, itr, nil, nil)
+	dbtest.AssertItem(t, itr, []byte("3"), []byte("value3"))
+	dbtest.AssertNext(t, itr, true)
+	dbtest.AssertItem(t, itr, []byte("2"), []byte("value2"))
+	dbtest.AssertNext(t, itr, true)
+	dbtest.AssertItem(t, itr, []byte("1"), []byte("value1"))
+	dbtest.AssertNext(t, itr, false)
+	dbtest.AssertInvalid(t, itr)
 	itr.Close()
 }
 
@@ -87,14 +87,14 @@ func TestPrefixDBReverseIterator5(t *testing.T) {
 
 	itr, err := pdb.ReverseIterator([]byte("1"), nil)
 	require.NoError(t, err)
-	dbtest.Domain(t, itr, []byte("1"), nil)
-	dbtest.Item(t, itr, []byte("3"), []byte("value3"))
-	dbtest.Next(t, itr, true)
-	dbtest.Item(t, itr, []byte("2"), []byte("value2"))
-	dbtest.Next(t, itr, true)
-	dbtest.Item(t, itr, []byte("1"), []byte("value1"))
-	dbtest.Next(t, itr, false)
-	dbtest.Invalid(t, itr)
+	dbtest.AssertDomain(t, itr, []byte("1"), nil)
+	dbtest.AssertItem(t, itr, []byte("3"), []byte("value3"))
+	dbtest.AssertNext(t, itr, true)
+	dbtest.AssertItem(t, itr, []byte("2"), []byte("value2"))
+	dbtest.AssertNext(t, itr, true)
+	dbtest.AssertItem(t, itr, []byte("1"), []byte("value1"))
+	dbtest.AssertNext(t, itr, false)
+	dbtest.AssertInvalid(t, itr)
 	itr.Close()
 }
 
@@ -103,12 +103,12 @@ func TestPrefixDBReverseIterator6(t *testing.T) {
 
 	itr, err := pdb.ReverseIterator([]byte("2"), nil)
 	require.NoError(t, err)
-	dbtest.Domain(t, itr, []byte("2"), nil)
-	dbtest.Item(t, itr, []byte("3"), []byte("value3"))
-	dbtest.Next(t, itr, true)
-	dbtest.Item(t, itr, []byte("2"), []byte("value2"))
-	dbtest.Next(t, itr, false)
-	dbtest.Invalid(t, itr)
+	dbtest.AssertDomain(t, itr, []byte("2"), nil)
+	dbtest.AssertItem(t, itr, []byte("3"), []byte("value3"))
+	dbtest.AssertNext(t, itr, true)
+	dbtest.AssertItem(t, itr, []byte("2"), []byte("value2"))
+	dbtest.AssertNext(t, itr, false)
+	dbtest.AssertInvalid(t, itr)
 	itr.Close()
 }
 
@@ -117,10 +117,10 @@ func TestPrefixDBReverseIterator7(t *testing.T) {
 
 	itr, err := pdb.ReverseIterator(nil, []byte("2"))
 	require.NoError(t, err)
-	dbtest.Domain(t, itr, nil, []byte("2"))
-	dbtest.Item(t, itr, []byte("1"), []byte("value1"))
-	dbtest.Next(t, itr, false)
-	dbtest.Invalid(t, itr)
+	dbtest.AssertDomain(t, itr, nil, []byte("2"))
+	dbtest.AssertItem(t, itr, []byte("1"), []byte("value1"))
+	dbtest.AssertNext(t, itr, false)
+	dbtest.AssertInvalid(t, itr)
 	itr.Close()
 }
 
@@ -140,7 +140,7 @@ func TestPrefixDBViewVersion(t *testing.T) {
 	view := tmdb.NewPrefixReader(dbview, prefix)
 	require.NotNil(t, view)
 
-	dbtest.Value(t, view, []byte("1"), []byte("value1"))
-	dbtest.Value(t, view, []byte("2"), []byte("value2"))
-	dbtest.Value(t, view, []byte("4"), nil)
+	dbtest.AssertValue(t, view, []byte("1"), []byte("value1"))
+	dbtest.AssertValue(t, view, []byte("2"), []byte("value2"))
+	dbtest.AssertValue(t, view, []byte("4"), nil)
 }
