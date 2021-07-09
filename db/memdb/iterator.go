@@ -40,6 +40,7 @@ func newMemDBIterator(db *dbVersion, start []byte, end []byte, reverse bool) *me
 	db.mtx.RLock()
 	go func() {
 		defer db.mtx.RUnlock()
+		defer close(ch)
 		// Because we use [start, end) for reverse ranges, while btree uses (start, end], we need
 		// the following variables to handle some reverse iteration conditions ourselves.
 		var (
@@ -82,7 +83,6 @@ func newMemDBIterator(db *dbVersion, start []byte, end []byte, reverse bool) *me
 			abortLessThan = start
 			db.btree.DescendLessOrEqual(newKey(end), visitor)
 		}
-		close(ch)
 	}()
 
 	// prime the iterator with the first value, if any

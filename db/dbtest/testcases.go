@@ -246,6 +246,7 @@ func DoTestTransactions(t *testing.T, load Loader) {
 
 	// Uncommitted records are not saved
 	t.Run("no commit", func(t *testing.T) {
+		t.Helper()
 		view := db.Reader()
 		defer view.Discard()
 		tx := db.ReadWriter()
@@ -258,6 +259,7 @@ func DoTestTransactions(t *testing.T, load Loader) {
 
 	// Writing separately to same key causes a conflict
 	t.Run("write conflict", func(t *testing.T) {
+		t.Helper()
 		tx1 := db.ReadWriter()
 		tx2 := db.ReadWriter()
 		tx2.Get([]byte("1"))
@@ -269,6 +271,7 @@ func DoTestTransactions(t *testing.T, load Loader) {
 
 	// Writing from concurrent txns
 	t.Run("concurrent transactions", func(t *testing.T) {
+		t.Helper()
 		var wg sync.WaitGroup
 		setkv := func(k, v []byte) {
 			defer wg.Done()

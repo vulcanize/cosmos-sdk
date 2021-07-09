@@ -64,7 +64,7 @@ func (pdb PrefixR) Iterator(start, end []byte) (Iterator, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newPrefixIterator(pdb.prefix, start, end, itr)
+	return newPrefixIterator(pdb.prefix, start, end, itr), nil
 }
 
 // ReverseIterator implements DBReader.
@@ -83,7 +83,7 @@ func (pdb PrefixR) ReverseIterator(start, end []byte) (Iterator, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newPrefixIterator(pdb.prefix, start, end, ritr)
+	return newPrefixIterator(pdb.prefix, start, end, ritr), nil
 }
 
 // Discard implements DBReader.
