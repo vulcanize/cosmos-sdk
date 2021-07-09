@@ -212,7 +212,8 @@ func DoTestVersioning(t *testing.T, load Loader) {
 	require.Equal(t, v1, versions.Initial())
 	require.Equal(t, v2, versions.Last())
 
-	view = db.ReaderAt(v1)
+	view, err := db.ReaderAt(v1)
+	require.NoError(t, err)
 	require.NotNil(t, view)
 	val, err := view.Get([]byte("0"))
 	require.Equal(t, []byte("a"), val)
@@ -223,7 +224,8 @@ func DoTestVersioning(t *testing.T, load Loader) {
 	has, err := view.Has([]byte("2"))
 	require.False(t, has)
 
-	view = db.ReaderAt(v2)
+	view, err = db.ReaderAt(v2)
+	require.NoError(t, err)
 	require.NotNil(t, view)
 	val, err = view.Get([]byte("0"))
 	require.Equal(t, []byte("c"), val)
@@ -235,8 +237,8 @@ func DoTestVersioning(t *testing.T, load Loader) {
 	require.False(t, has)
 
 	// Try invalid version
-	view = db.ReaderAt(versions.Last() + 1)
-	require.Nil(t, view)
+	view, err = db.ReaderAt(versions.Last() + 1)
+	require.Equal(t, dbm.ErrVersionDoesNotExist, err)
 	require.NoError(t, db.Close())
 }
 
@@ -321,7 +323,8 @@ func DoTestReloadDB(t *testing.T, load Loader) {
 	// Reload and check each saved version
 	db = load(t, dirname)
 
-	view := db.ReaderAt(first)
+	view, err := db.ReaderAt(first)
+	require.NoError(t, err)
 	for i := 0; i < 100; i++ {
 		v, err := view.Get(ikey(i))
 		require.NoError(t, err)
@@ -329,7 +332,8 @@ func DoTestReloadDB(t *testing.T, load Loader) {
 	}
 	view.Discard()
 
-	view = db.ReaderAt(last)
+	view, err = db.ReaderAt(last)
+	require.NoError(t, err)
 	for i := 0; i < 50; i++ {
 		v, err := view.Get(ikey(i))
 		require.NoError(t, err)

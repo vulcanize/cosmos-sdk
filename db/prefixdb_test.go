@@ -135,8 +135,9 @@ func TestPrefixDBViewVersion(t *testing.T) {
 	pdb.Delete([]byte("2"))
 	pdb.Set([]byte("4"), []byte("newvalue4"))
 
-	dbview := db.ReaderAt(id)
+	dbview, err := db.ReaderAt(id)
 	require.NotNil(t, dbview)
+	require.NoError(t, err)
 	view := tmdb.NewPrefixReader(dbview, prefix)
 	require.NotNil(t, view)
 

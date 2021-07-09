@@ -12,8 +12,8 @@ var (
 	// ErrValueNil is returned when attempting to set a nil value.
 	ErrValueNil = errors.New("value cannot be nil")
 
-	// // ErrVersionDoesNotExist is returned when a DB version does not exist
-	// ErrVersionDoesNotExist = errors.New("version does not exist")
+	// ErrVersionDoesNotExist is returned when a DB version does not exist
+	ErrVersionDoesNotExist = errors.New("version does not exist")
 )
 
 // Connection represents a connection to a versioned database.
@@ -25,8 +25,8 @@ type DB interface {
 	Reader() DBReader
 
 	// Opens a read-only transaction at a specified version.
-	// Returns nil for invalid versions.
-	ReaderAt(uint64) DBReader
+	// Returns ErrVersionDoesNotExist for invalid versions.
+	ReaderAt(uint64) (DBReader, error)
 
 	// Opens a read-write transaction at the current version.
 	ReadWriter() DBReadWriter
