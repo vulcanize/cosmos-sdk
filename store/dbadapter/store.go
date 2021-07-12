@@ -18,7 +18,7 @@ type Store struct {
 }
 
 func NewStore(db tmdb.DB) Store {
-	return Store{DB: dbm.MungeDBRW(db)}
+	return Store{DB: dbm.AdaptDBRW(db)}
 }
 
 // Get wraps the underlying DB's Get method panicing on error.

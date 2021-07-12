@@ -108,7 +108,7 @@ func (s *storeTestSuite) TestDiffKVStores() {
 }
 
 func (s *storeTestSuite) initTestStores() (types.KVStore, types.KVStore) {
-	db := dbm.MungeTmdb(memdb.NewDB())
+	db := dbm.AdaptTmdb(memdb.NewDB())
 	ms := rootmulti.NewStore(db)
 
 	key1 := types.NewKVStoreKey("store1")

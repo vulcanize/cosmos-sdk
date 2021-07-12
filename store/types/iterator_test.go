@@ -12,7 +12,7 @@ import (
 )
 
 func newMemTestKVStore(t *testing.T) types.KVStore {
-	db := dbm.MungeTmdb(memdb.NewDB())
+	db := dbm.AdaptTmdb(memdb.NewDB())
 	store, err := iavl.LoadStore(db, types.CommitID{}, false)
 	require.NoError(t, err)
 	return store

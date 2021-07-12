@@ -90,7 +90,7 @@ func testPrefixStore(t *testing.T, baseStore types.KVStore, prefix []byte) {
 }
 
 func TestIAVLStorePrefix(t *testing.T) {
-	db := dbm.MungeTmdb(memdb.NewDB())
+	db := dbm.AdaptTmdb(memdb.NewDB())
 	tree, err := tiavl.NewMutableTree(db, cacheSize)
 	require.NoError(t, err)
 	iavlStore := iavl.UnsafeNewStore(tree)
