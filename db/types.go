@@ -12,7 +12,7 @@ var (
 	// ErrValueNil is returned when attempting to set a nil value.
 	ErrValueNil = errors.New("value cannot be nil")
 
-	// ErrVersionDoesNotExist is returned when a DB version does not exist
+	// ErrVersionDoesNotExist is returned when a DB version does not exist.
 	ErrVersionDoesNotExist = errors.New("version does not exist")
 
 	// ErrOpenTransactions is returned when open transactions exist which must
@@ -44,9 +44,11 @@ type DBConnection interface {
 	// Returns all saved versions
 	Versions() VersionSet
 
-	// Saves the current version of the database and returns its ID.
-	// Waits for any pending Writer transactions to be discarded. TODO: is an error preferred?
-	SaveVersion() uint64
+	// Saves the current contents of the database and returns the next ID.
+	// If 0 is passed as target, the default version ID used will be `Versions().Last()+1`.
+	// If a specific target ID is passed, it must be greater than or equal to this default.
+	// Returns an error if any open DBWriter transactions exist.
+	SaveVersion(target uint64) (uint64, error)
 
 	// Close closes the database connection.
 	Close() error
@@ -55,7 +57,6 @@ type DBConnection interface {
 	Stats() map[string]string
 }
 
-// TODO: rename to batch/transaction?
 // DBReader is a read-only transaction interface. It is safe for concurrent access.
 // Callers must call Discard when done with the transaction.
 //
@@ -177,4 +178,8 @@ type VersionSet interface {
 	Count() int
 	// All returns all saved versions as an ordered slice
 	All() []uint64
+	// Equal returns true iff this set is identical to another
+	Equal(VersionSet) bool
+	// Exists returns true if a saved version exists
+	Exists(uint64) bool
 }

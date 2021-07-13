@@ -196,23 +196,33 @@ func DoTestVersioning(t *testing.T, load Loader) {
 	require.NoError(t, txn.Set([]byte("0"), []byte("a")))
 	require.NoError(t, txn.Set([]byte("1"), []byte("b")))
 	require.NoError(t, txn.Commit())
-	v1 := db.SaveVersion()
+	v1, err := db.SaveVersion(0)
+	require.NoError(t, err)
 
 	txn = db.ReadWriter()
 	require.NoError(t, txn.Set([]byte("0"), []byte("c")))
 	require.NoError(t, txn.Delete([]byte("1")))
 	require.NoError(t, txn.Set([]byte("2"), []byte("c")))
 	require.NoError(t, txn.Commit())
-	v2 := db.SaveVersion()
+	v2, err := db.SaveVersion(0)
+	require.NoError(t, err)
+
+	// Skip to a future version
+	v3, err := db.SaveVersion(v2 + 2)
+	require.NoError(t, err)
+
+	// Try to save to a past version
+	_, err = db.SaveVersion(v2)
+	require.Error(t, err)
 
 	// Verify existing versions
 	versions := db.Versions()
-	require.Equal(t, 2, versions.Count())
-	require.Equal(t, []uint64{v1, v2}, versions.All())
+	require.Equal(t, 3, versions.Count())
+	require.Equal(t, []uint64{v1, v2, v3}, versions.All())
 	require.Equal(t, v1, versions.Initial())
-	require.Equal(t, v2, versions.Last())
+	require.Equal(t, v3, versions.Last())
 
-	view, err := db.ReaderAt(v1)
+	view, err = db.ReaderAt(v1)
 	require.NoError(t, err)
 	require.NotNil(t, view)
 	val, err := view.Get([]byte("0"))
@@ -236,7 +246,7 @@ func DoTestVersioning(t *testing.T, load Loader) {
 	has, err = view.Has([]byte("1"))
 	require.False(t, has)
 
-	// Try invalid version
+	// Try to read an invalid version
 	view, err = db.ReaderAt(versions.Last() + 1)
 	require.Equal(t, dbm.ErrVersionDoesNotExist, err)
 	require.NoError(t, db.Close())
@@ -312,13 +322,16 @@ func DoTestReloadDB(t *testing.T, load Loader) {
 		require.NoError(t, txn.Set(ikey(i), ival(i)))
 	}
 	require.NoError(t, txn.Commit())
-	first := db.SaveVersion()
+	first, err := db.SaveVersion(0)
+	require.NoError(t, err)
+
 	txn = db.ReadWriter()
 	for i := 0; i < 50; i++ { // overwrite some values
 		require.NoError(t, txn.Set(ikey(i), ival(i*10)))
 	}
 	require.NoError(t, txn.Commit())
-	last := db.SaveVersion()
+	last, err := db.SaveVersion(0)
+	require.NoError(t, err)
 
 	txn = db.ReadWriter()
 	for i := 100; i < 150; i++ {

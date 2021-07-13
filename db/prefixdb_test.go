@@ -128,18 +128,21 @@ func TestPrefixDBViewVersion(t *testing.T) {
 	prefix := []byte("key")
 	db := memdb.NewDB()
 	fillDBWithStuff(t, db)
-	id := db.SaveVersion()
+	id, err := db.SaveVersion(0)
+	require.NoError(t, err)
 	pdb := dbm.NewPrefixReadWriter(db.ReadWriter(), prefix)
 
 	pdb.Set([]byte("1"), []byte("newvalue1"))
 	pdb.Delete([]byte("2"))
 	pdb.Set([]byte("4"), []byte("newvalue4"))
+	pdb.Discard()
 
 	dbview, err := db.ReaderAt(id)
 	require.NotNil(t, dbview)
 	require.NoError(t, err)
 	view := dbm.NewPrefixReader(dbview, prefix)
 	require.NotNil(t, view)
+	defer view.Discard()
 
 	dbtest.AssertValue(t, view, []byte("1"), []byte("value1"))
 	dbtest.AssertValue(t, view, []byte("2"), []byte("value2"))

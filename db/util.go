@@ -2,6 +2,7 @@ package db
 
 import (
 	"bytes"
+	"errors"
 	"os"
 )
 
@@ -52,7 +53,8 @@ func FileExists(filePath string) bool {
 	return !os.IsNotExist(err)
 }
 
-// Encapsulates the current valid versions and computes the next version.
+// VersionManager encapsulates the current valid versions of a DB and computes
+// the next version.
 type VersionManager struct {
 	versions []uint64
 }
@@ -61,7 +63,7 @@ func NewVersionManager(versions []uint64) *VersionManager {
 	return &VersionManager{versions: versions}
 }
 
-func (vm *VersionManager) Valid(version uint64) bool {
+func (vm *VersionManager) Exists(version uint64) bool {
 	// todo: maybe use map to avoid linear search
 	for _, ver := range vm.versions {
 		if ver == version {
@@ -90,10 +92,16 @@ func (vm *VersionManager) Next() uint64 {
 	return vm.Last() + 1
 }
 
-func (vm *VersionManager) Save() uint64 {
-	id := vm.Next()
-	vm.versions = append(vm.versions, id)
-	return id
+func (vm *VersionManager) Save(target uint64) (uint64, error) {
+	next := vm.Next()
+	if target == 0 {
+		target = next
+	}
+	if target < next {
+		return 0, errors.New("target version cannot be less than next sequential version")
+	}
+	vm.versions = append(vm.versions, target)
+	return target, nil
 }
 
 var _ VersionSet = (*VersionManager)(nil)
@@ -113,4 +121,10 @@ func (vm *VersionManager) Equal(that VersionSet) bool {
 		}
 	}
 	return true
+}
+
+func (vm *VersionManager) Copy() *VersionManager {
+	vs := make([]uint64, len(vm.versions))
+	copy(vs, vm.versions)
+	return NewVersionManager(vs)
 }

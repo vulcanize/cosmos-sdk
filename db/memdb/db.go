@@ -11,8 +11,7 @@ import (
 
 const (
 	// The approximate number of items and children per B-tree node. Tuned with benchmarks.
-	bTreeDegree    = 32
-	initialVersion = 1
+	bTreeDegree = 32
 )
 
 // item is a btree.Item with byte slices as keys and values
@@ -49,7 +48,8 @@ func newPair(key, value []byte) *item {
 // TODO: Transactional semantics.
 type MemDB struct {
 	dbVersion
-	saved []*btree.BTree
+	saved map[uint64]*btree.BTree
+	last  uint64
 }
 
 type dbVersion struct {
@@ -63,7 +63,10 @@ var _ dbm.DBReadWriter = (*dbVersion)(nil)
 
 // NewDB creates a new in-memory database.
 func NewDB() *MemDB {
-	return &MemDB{dbVersion: dbVersion{btree: btree.New(bTreeDegree)}}
+	return &MemDB{
+		dbVersion: dbVersion{btree: btree.New(bTreeDegree)},
+		saved:     make(map[uint64]*btree.BTree),
+	}
 }
 
 // Close implements DB.
@@ -77,8 +80,8 @@ func (db *MemDB) Close() error {
 // Versions implements DBConnection.
 func (db *MemDB) Versions() dbm.VersionSet {
 	var ret []uint64
-	for i := range db.saved {
-		ret = append(ret, uint64(i+1))
+	for ver, _ := range db.saved {
+		ret = append(ret, uint64(ver))
 	}
 	return dbm.NewVersionManager(ret)
 }
@@ -90,11 +93,11 @@ func (db *MemDB) Reader() dbm.DBReader {
 
 // ReaderAt implements DBConnection.
 func (db *MemDB) ReaderAt(version uint64) (dbm.DBReader, error) {
-	version -= initialVersion
-	if version >= uint64(len(db.saved)) {
+	tree, ok := db.saved[version]
+	if !ok {
 		return nil, dbm.ErrVersionDoesNotExist
 	}
-	return &dbVersion{btree: db.saved[version]}, nil
+	return &dbVersion{btree: tree}, nil
 }
 
 // Writer implements DBConnection.
@@ -107,14 +110,21 @@ func (db *MemDB) ReadWriter() dbm.DBReadWriter {
 	return &db.dbVersion
 }
 
-func (db *MemDB) SaveVersion() uint64 {
+func (db *MemDB) SaveVersion(target uint64) (uint64, error) {
 	db.dbVersion.mtx.Lock()
 	defer db.dbVersion.mtx.Unlock()
-	id := db.CurrentVersion()
-	db.saved = append(db.saved, db.btree)
-	// BTree's Clone() makes a CoW cloned ref of the current data
+
+	if target == 0 {
+		target = db.last + 1
+	}
+	if _, ok := db.saved[target]; ok {
+		return 0, fmt.Errorf("version exists: %v", target)
+	}
+	db.saved[target] = db.btree
+	// BTree's Clone() makes a CoW extension of the current tree
 	db.dbVersion.btree = db.btree.Clone()
-	return id
+	db.last = target
+	return target, nil
 }
 
 // Get implements DBReader.
