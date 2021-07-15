@@ -245,53 +245,60 @@ func DoTestVersioning(t *testing.T, load Loader) {
 func DoTestTransactions(t *testing.T, load Loader) {
 	t.Helper()
 	db := load(t, t.TempDir())
+	// Both methods should work in a DBWriter context
+	writerFuncs := []func() dbm.DBWriter{
+		db.Writer,
+		func() dbm.DBWriter { return db.ReadWriter() },
+	}
 
-	// Uncommitted records are not saved
-	t.Run("no commit", func(t *testing.T) {
-		t.Helper()
-		view := db.Reader()
-		defer view.Discard()
-		tx := db.ReadWriter()
-		defer tx.Discard()
-		require.NoError(t, tx.Set([]byte("0"), []byte("a")))
-		v, err := view.Get([]byte("0"))
-		require.NoError(t, err)
-		require.Nil(t, v)
-	})
+	for _, fn := range writerFuncs {
+		// Uncommitted records are not saved
+		t.Run("no commit", func(t *testing.T) {
+			t.Helper()
+			view := db.Reader()
+			defer view.Discard()
+			tx := fn()
+			defer tx.Discard()
+			require.NoError(t, tx.Set([]byte("0"), []byte("a")))
+			v, err := view.Get([]byte("0"))
+			require.NoError(t, err)
+			require.Nil(t, v)
+		})
 
-	// Writing separately to same key causes a conflict
-	t.Run("write conflict", func(t *testing.T) {
-		t.Helper()
-		tx1 := db.ReadWriter()
-		tx2 := db.ReadWriter()
-		tx2.Get([]byte("1"))
-		require.NoError(t, tx1.Set([]byte("1"), []byte("b")))
-		require.NoError(t, tx2.Set([]byte("1"), []byte("c")))
-		require.NoError(t, tx1.Commit())
-		require.Error(t, tx2.Commit())
-	})
+		// Writing separately to same key causes a conflict
+		t.Run("write conflict", func(t *testing.T) {
+			t.Helper()
+			tx1 := fn()
+			tx2 := db.ReadWriter()
+			tx2.Get([]byte("1"))
+			require.NoError(t, tx1.Set([]byte("1"), []byte("b")))
+			require.NoError(t, tx2.Set([]byte("1"), []byte("c")))
+			require.NoError(t, tx1.Commit())
+			require.Error(t, tx2.Commit())
+		})
 
-	// Writing from concurrent txns
-	t.Run("concurrent transactions", func(t *testing.T) {
-		t.Helper()
-		var wg sync.WaitGroup
-		setkv := func(k, v []byte) {
-			defer wg.Done()
-			tx := db.ReadWriter()
-			require.NoError(t, tx.Set(k, v))
-			require.NoError(t, tx.Commit())
-		}
-		wg.Add(100)
-		for i := 0; i < 100; i++ {
-			go setkv(ikey(i), ival(i))
-		}
-		wg.Wait()
-		view := db.Reader()
-		defer view.Discard()
-		v, err := view.Get(ikey(0))
-		require.NoError(t, err)
-		require.Equal(t, ival(0), v)
-	})
+		// Writing from concurrent txns
+		t.Run("concurrent transactions", func(t *testing.T) {
+			t.Helper()
+			var wg sync.WaitGroup
+			setkv := func(k, v []byte) {
+				defer wg.Done()
+				tx := fn()
+				require.NoError(t, tx.Set(k, v))
+				require.NoError(t, tx.Commit())
+			}
+			wg.Add(100)
+			for i := 0; i < 100; i++ {
+				go setkv(ikey(i), ival(i))
+			}
+			wg.Wait()
+			view := db.Reader()
+			defer view.Discard()
+			v, err := view.Get(ikey(0))
+			require.NoError(t, err)
+			require.Equal(t, ival(0), v)
+		})
+	}
 	require.NoError(t, db.Close())
 }
 
