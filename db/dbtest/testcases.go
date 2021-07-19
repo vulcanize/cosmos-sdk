@@ -261,13 +261,13 @@ func DoTestTransactions(t *testing.T, load Loader) {
 		func() dbm.DBWriter { return db.ReadWriter() },
 	}
 
-	for _, fn := range writerFuncs {
+	for _, getWriter := range writerFuncs {
 		// Uncommitted records are not saved
 		t.Run("no commit", func(t *testing.T) {
 			t.Helper()
 			view := db.Reader()
 			defer view.Discard()
-			tx := fn()
+			tx := getWriter()
 			defer tx.Discard()
 			require.NoError(t, tx.Set([]byte("0"), []byte("a")))
 			v, err := view.Get([]byte("0"))
@@ -278,7 +278,7 @@ func DoTestTransactions(t *testing.T, load Loader) {
 		// Writing separately to same key causes a conflict
 		t.Run("write conflict", func(t *testing.T) {
 			t.Helper()
-			tx1 := fn()
+			tx1 := getWriter()
 			tx2 := db.ReadWriter()
 			tx2.Get([]byte("1"))
 			require.NoError(t, tx1.Set([]byte("1"), []byte("b")))
@@ -293,12 +293,13 @@ func DoTestTransactions(t *testing.T, load Loader) {
 			var wg sync.WaitGroup
 			setkv := func(k, v []byte) {
 				defer wg.Done()
-				tx := fn()
+				tx := getWriter()
 				require.NoError(t, tx.Set(k, v))
 				require.NoError(t, tx.Commit())
 			}
-			wg.Add(100)
-			for i := 0; i < 100; i++ {
+			n := 10
+			wg.Add(n)
+			for i := 0; i < n; i++ {
 				go setkv(ikey(i), ival(i))
 			}
 			wg.Wait()
@@ -307,6 +308,16 @@ func DoTestTransactions(t *testing.T, load Loader) {
 			v, err := view.Get(ikey(0))
 			require.NoError(t, err)
 			require.Equal(t, ival(0), v)
+		})
+
+		// Try to commit version with open txns
+		t.Run("open transactions", func(t *testing.T) {
+			t.Helper()
+			tx := getWriter()
+			tx.Set([]byte("2"), []byte("a"))
+			_, err := db.SaveVersion(0)
+			require.Equal(t, dbm.ErrOpenTransactions, err)
+			tx.Discard()
 		})
 	}
 	require.NoError(t, db.Close())
