@@ -26,3 +26,16 @@ message SnapshotIAVLItem {
   int64 version = 3;
   int32 height  = 4;
 }
+
+message SnapshotKVItem {
+    bytes key = 1;
+    bytes value = 2;
+}
+
+message SnapshotItem {
+  oneof item {
+    SnapshotStoreItem store = 1;
+    SnapshotIAVLItem  iavl  = 2 [(gogoproto.customname) = "IAVL"];
+    SnapshotKVItem    kv    = 3 [(gogoproto.customname) = "KV"];
+  }
+}
