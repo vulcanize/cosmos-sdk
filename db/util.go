@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"sort"
 )
 
 func cp(bz []byte) (ret []byte) {
@@ -56,42 +57,48 @@ func FileExists(filePath string) bool {
 // VersionManager encapsulates the current valid versions of a DB and computes
 // the next version.
 type VersionManager struct {
-	versions []uint64
+	versions      map[uint64]struct{}
+	initial, last uint64
 }
 
+var _ VersionSet = (*VersionManager)(nil)
+
+// NewVersionManager creates a VersionManager from a sorted slice of ascending version ids.
 func NewVersionManager(versions []uint64) *VersionManager {
-	return &VersionManager{versions: versions}
+	vmap := make(map[uint64]struct{})
+	var init, last uint64
+	for _, ver := range versions {
+		vmap[ver] = struct{}{}
+	}
+	if len(versions) > 0 {
+		init = versions[0]
+		last = versions[len(versions)-1]
+	}
+	return &VersionManager{versions: vmap, initial: init, last: last}
 }
 
+// Exists implements VersionSet.
 func (vm *VersionManager) Exists(version uint64) bool {
-	// todo: maybe use map to avoid linear search
-	for _, ver := range vm.versions {
-		if ver == version {
-			return true
-		}
-	}
-	return false
+	_, has := vm.versions[version]
+	return has
 }
 
+// Initial implements VersionSet.
 func (vm *VersionManager) Initial() uint64 {
-	if len(vm.versions) == 0 {
-		return 1
-	}
-	return vm.versions[0]
+	return vm.initial
 }
 
+// Last implements VersionSet.
 func (vm *VersionManager) Last() uint64 {
-	if len(vm.versions) == 0 {
-		return 0
-	} else {
-		return vm.versions[len(vm.versions)-1]
-	}
+	return vm.last
 }
 
+// Next implements VersionSet.
 func (vm *VersionManager) Next() uint64 {
 	return vm.Last() + 1
 }
 
+// Save implements VersionSet.
 func (vm *VersionManager) Save(target uint64) (uint64, error) {
 	next := vm.Next()
 	if target == 0 {
@@ -100,15 +107,28 @@ func (vm *VersionManager) Save(target uint64) (uint64, error) {
 	if target < next {
 		return 0, errors.New("target version cannot be less than next sequential version")
 	}
-	vm.versions = append(vm.versions, target)
+	vm.versions[target] = struct{}{}
+	vm.last = target
+	if len(vm.versions) == 1 {
+		vm.initial = target
+	}
 	return target, nil
 }
 
-var _ VersionSet = (*VersionManager)(nil)
+// All implements VersionSet.
+func (vm *VersionManager) All() []uint64 {
+	var ret []uint64
+	for ver, _ := range vm.versions {
+		ret = append(ret, ver)
+	}
+	sort.Slice(ret, func(i, j int) bool { return ret[i] < ret[j] })
+	return ret
+}
 
-func (vm *VersionManager) All() []uint64 { return vm.versions }
-func (vm *VersionManager) Count() int    { return len(vm.versions) }
+// Count implements VersionSet.
+func (vm *VersionManager) Count() int { return len(vm.versions) }
 
+// Equal implements VersionSet.
 func (vm *VersionManager) Equal(that VersionSet) bool {
 	mine := vm.All()
 	theirs := that.All()
@@ -124,7 +144,9 @@ func (vm *VersionManager) Equal(that VersionSet) bool {
 }
 
 func (vm *VersionManager) Copy() *VersionManager {
-	vs := make([]uint64, len(vm.versions))
-	copy(vs, vm.versions)
-	return NewVersionManager(vs)
+	vmap := make(map[uint64]struct{})
+	for ver, _ := range vm.versions {
+		vmap[ver] = struct{}{}
+	}
+	return &VersionManager{versions: vmap, initial: vm.initial, last: vm.last}
 }
