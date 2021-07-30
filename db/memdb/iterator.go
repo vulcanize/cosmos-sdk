@@ -27,6 +27,9 @@ type memDBIterator struct {
 var _ tmdb.Iterator = (*memDBIterator)(nil)
 
 // newMemDBIterator creates a new memDBIterator.
+// A visitor is passed to the btree which streams items to the iterator over a channel. Advancing
+// the iterator pulls items from the channel, returning execution to the visitor.
+// The reverse case needs some special handling, since we use [start, end) while btree uses (start, end]
 func newMemDBIterator(db *dbVersion, start []byte, end []byte, reverse bool) *memDBIterator {
 	ctx, cancel := context.WithCancel(context.Background())
 	ch := make(chan *item, chBufferSize)

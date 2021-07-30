@@ -1,13 +1,6 @@
 package db
 
-import "errors"
-
 type readerRWAdapter struct{ DBReader }
-
-var (
-	// ErrReadOnly is returned when a write operation is attempted on a read-only transaction.
-	ErrReadOnly = errors.New("cannot modify read-only transaction")
-)
 
 // ReaderAsReadWriter returns a ReadWriter that forwards to a reader and errors if writes are
 // attempted. Can be used to pass a Reader when a ReadWriter is expected

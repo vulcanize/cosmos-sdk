@@ -62,10 +62,3 @@ func AssertValue(t *testing.T, db dbm.DBReader, key []byte, valueWanted []byte) 
 func AssertValuePanics(t *testing.T, itr dbm.Iterator) {
 	assert.Panics(t, func() { itr.Value() })
 }
-
-func CleanupDBDir(dir, name string) {
-	err := os.RemoveAll(filepath.Join(dir, name) + ".db")
-	if err != nil {
-		panic(err)
-	}
-}

@@ -14,6 +14,13 @@ var (
 
 	// ErrVersionDoesNotExist is returned when a DB version does not exist
 	ErrVersionDoesNotExist = errors.New("version does not exist")
+
+	// ErrOpenTransactions is returned when open transactions exist which must
+	// be discarded/committed before an operation can complete.
+	ErrOpenTransactions = errors.New("open transactions exist")
+
+	// ErrReadOnly is returned when a write operation is attempted on a read-only transaction.
+	ErrReadOnly = errors.New("cannot modify read-only transaction")
 )
 
 // DBConnection represents a connection to a versioned database.

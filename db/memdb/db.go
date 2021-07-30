@@ -44,6 +44,9 @@ func newPair(key, value []byte) *item {
 // database, so modifying them will cause the stored values to be modified as well. All DB methods
 // already specify that keys and values should be considered read-only, but this is especially
 // important with MemDB.
+//
+// Versioning is implemented by maintaining references to copy-on-write clones of the backing btree.
+// TODO: Transactional semantics.
 type MemDB struct {
 	dbVersion
 	saved []*btree.BTree
@@ -64,13 +67,14 @@ func NewDB() *MemDB {
 }
 
 // Close implements DB.
+// Close is a noop since for an in-memory database, we don't have a destination to flush
+// contents to nor do we want any data loss on invoking Close().
+// See the discussion in https://github.com/tendermint/tendermint/libs/pull/56
 func (db *MemDB) Close() error {
-	// Close is a noop since for an in-memory database, we don't have a destination to flush
-	// contents to nor do we want any data loss on invoking Close().
-	// See the discussion in https://github.com/tendermint/tendermint/libs/pull/56
 	return nil
 }
 
+// Versions implements DBConnection.
 func (db *MemDB) Versions() dbm.VersionSet {
 	var ret []uint64
 	for i := range db.saved {
@@ -79,14 +83,12 @@ func (db *MemDB) Versions() dbm.VersionSet {
 	return dbm.NewVersionManager(ret)
 }
 
-func (db *MemDB) CurrentVersion() uint64 {
-	return uint64(len(db.saved)) + initialVersion
-}
-
+// Reader implements DBConnection.
 func (db *MemDB) Reader() dbm.DBReader {
 	return &db.dbVersion
 }
 
+// ReaderAt implements DBConnection.
 func (db *MemDB) ReaderAt(version uint64) (dbm.DBReader, error) {
 	version -= initialVersion
 	if version >= uint64(len(db.saved)) {
@@ -95,10 +97,12 @@ func (db *MemDB) ReaderAt(version uint64) (dbm.DBReader, error) {
 	return &dbVersion{btree: db.saved[version]}, nil
 }
 
+// Writer implements DBConnection.
 func (db *MemDB) Writer() dbm.DBWriter {
 	return &db.dbVersion
 }
 
+// ReadWriter implements DBConnection.
 func (db *MemDB) ReadWriter() dbm.DBReadWriter {
 	return &db.dbVersion
 }
@@ -113,7 +117,7 @@ func (db *MemDB) SaveVersion() uint64 {
 	return id
 }
 
-// Get implements DB.
+// Get implements DBReader.
 func (db *dbVersion) Get(key []byte) ([]byte, error) {
 	if len(key) == 0 {
 		return nil, dbm.ErrKeyEmpty
@@ -128,7 +132,7 @@ func (db *dbVersion) Get(key []byte) ([]byte, error) {
 	return nil, nil
 }
 
-// Has implements DB.
+// Has implements DBReader.
 func (db *dbVersion) Has(key []byte) (bool, error) {
 	if len(key) == 0 {
 		return false, dbm.ErrKeyEmpty
@@ -139,7 +143,7 @@ func (db *dbVersion) Has(key []byte) (bool, error) {
 	return db.btree.Has(newKey(key)), nil
 }
 
-// Set implements DB.
+// Set implements DBWriter.
 func (db *dbVersion) Set(key []byte, value []byte) error {
 	if len(key) == 0 {
 		return dbm.ErrKeyEmpty
@@ -159,7 +163,7 @@ func (db *dbVersion) set(key []byte, value []byte) {
 	db.btree.ReplaceOrInsert(newPair(key, value))
 }
 
-// Delete implements DB.
+// Delete implements DBWriter.
 func (db *dbVersion) Delete(key []byte) error {
 	if len(key) == 0 {
 		return dbm.ErrKeyEmpty
@@ -176,7 +180,7 @@ func (db *dbVersion) delete(key []byte) {
 	db.btree.Delete(newKey(key))
 }
 
-// Iterator implements DB.
+// Iterator implements DBReader.
 // Takes out a read-lock on the database until the iterator is closed.
 func (db *dbVersion) Iterator(start, end []byte) (dbm.Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
@@ -185,7 +189,7 @@ func (db *dbVersion) Iterator(start, end []byte) (dbm.Iterator, error) {
 	return newMemDBIterator(db, start, end, false), nil
 }
 
-// ReverseIterator implements DB.
+// ReverseIterator implements DBReader.
 // Takes out a read-lock on the database until the iterator is closed.
 func (db *dbVersion) ReverseIterator(start, end []byte) (dbm.Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
@@ -194,13 +198,14 @@ func (db *dbVersion) ReverseIterator(start, end []byte) (dbm.Iterator, error) {
 	return newMemDBIterator(db, start, end, true), nil
 }
 
+// Commit implements DBWriter.
 func (db *dbVersion) Commit() error {
 	// no-op, like Close()
 	return nil
 }
 func (db *dbVersion) Discard() {}
 
-// Print implements DB.
+// Print prints the database contents.
 func (db *MemDB) Print() error {
 	db.mtx.RLock()
 	defer db.mtx.RUnlock()
@@ -213,7 +218,7 @@ func (db *MemDB) Print() error {
 	return nil
 }
 
-// Stats implements DB.
+// Stats implements DBConnection.
 func (db *MemDB) Stats() map[string]string {
 	db.mtx.RLock()
 	defer db.mtx.RUnlock()
