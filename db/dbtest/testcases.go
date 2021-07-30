@@ -10,7 +10,7 @@ import (
 	dbm "github.com/cosmos/cosmos-sdk/db"
 )
 
-type Loader func(*testing.T, string) dbm.DB
+type Loader func(*testing.T, string) dbm.DBConnection
 
 func ikey(i int) []byte { return []byte(fmt.Sprintf("key-%03d", i)) }
 func ival(i int) []byte { return []byte(fmt.Sprintf("val-%03d", i)) }

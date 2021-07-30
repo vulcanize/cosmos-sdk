@@ -28,7 +28,7 @@ func BenchmarkMemDBRandomReadsWrites(b *testing.B) {
 	dbtest.BenchmarkRandomReadsWrites(b, db)
 }
 
-func load(t *testing.T, _ string) dbm.DB {
+func load(t *testing.T, _ string) dbm.DBConnection {
 	return NewDB()
 }
 

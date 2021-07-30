@@ -5,12 +5,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	tmdb "github.com/cosmos/cosmos-sdk/db"
+	dbm "github.com/cosmos/cosmos-sdk/db"
 	"github.com/cosmos/cosmos-sdk/db/dbtest"
 	"github.com/cosmos/cosmos-sdk/db/memdb"
 )
 
-func fillDBWithStuff(t *testing.T, db tmdb.DBReadWriter) {
+func fillDBWithStuff(t *testing.T, db dbm.DBReadWriter) {
 	// Under "key" prefix
 	require.NoError(t, db.Set([]byte("key"), []byte("value")))
 	require.NoError(t, db.Set([]byte("key1"), []byte("value1")))
@@ -22,16 +22,16 @@ func fillDBWithStuff(t *testing.T, db tmdb.DBReadWriter) {
 	require.NoError(t, db.Set([]byte("kee"), []byte("valuu")))
 }
 
-func mockDBWithStuff(t *testing.T) tmdb.DB {
+func mockDBWithStuff(t *testing.T) dbm.DBConnection {
 	db := memdb.NewDB()
 	fillDBWithStuff(t, db.ReadWriter())
 	return db
 }
 
-func makePrefixReader(t *testing.T, db tmdb.DB, pre []byte) tmdb.DBReader {
+func makePrefixReader(t *testing.T, db dbm.DBConnection, pre []byte) dbm.DBReader {
 	view := db.Reader()
 	require.NotNil(t, view)
-	return tmdb.NewPrefixReader(view, pre)
+	return dbm.NewPrefixReader(view, pre)
 }
 
 func TestPrefixDBSimple(t *testing.T) {
@@ -129,7 +129,7 @@ func TestPrefixDBViewVersion(t *testing.T) {
 	db := memdb.NewDB()
 	fillDBWithStuff(t, db)
 	id := db.SaveVersion()
-	pdb := tmdb.NewPrefixReadWriter(db.ReadWriter(), prefix)
+	pdb := dbm.NewPrefixReadWriter(db.ReadWriter(), prefix)
 
 	pdb.Set([]byte("1"), []byte("newvalue1"))
 	pdb.Delete([]byte("2"))
@@ -138,7 +138,7 @@ func TestPrefixDBViewVersion(t *testing.T) {
 	dbview, err := db.ReaderAt(id)
 	require.NotNil(t, dbview)
 	require.NoError(t, err)
-	view := tmdb.NewPrefixReader(dbview, prefix)
+	view := dbm.NewPrefixReader(dbview, prefix)
 	require.NotNil(t, view)
 
 	dbtest.AssertValue(t, view, []byte("1"), []byte("value1"))

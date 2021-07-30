@@ -16,11 +16,11 @@ var (
 	ErrVersionDoesNotExist = errors.New("version does not exist")
 )
 
-// Connection represents a connection to a versioned database.
+// DBConnection represents a connection to a versioned database.
 // Records are accessed via transaction objects, and must be safe for concurrent creation
 // and read and write access.
 // Past versions are only accessible read-only.
-type DB interface {
+type DBConnection interface {
 	// Opens a read-only transaction at the current working version.
 	Reader() DBReader
 
@@ -117,7 +117,7 @@ type DBReadWriter interface {
 // Callers must make sure the iterator is valid before calling any methods on it, otherwise
 // these methods will panic. This is in part caused by most backend databases using this convention.
 //
-// As with DB, keys and values should be considered read-only, and must be copied before they are
+// As with DBReader, keys and values should be considered read-only, and must be copied before they are
 // modified.
 //
 // Typical usage:

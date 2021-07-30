@@ -38,15 +38,9 @@ type Store struct {
 
 ## DBAdapter
 
-`dbadapter.Store` is a adapter for `dbm.DB` making it fulfilling the `KVStore` interface.
+`dbadapter.Store` is an adapter for `dbm.DBReadWriter` making it fulfilling the `KVStore` interface.
 
-```go
-type Store struct {
-    dbm.DB
-}
-```
-
-`dbadapter.Store` embeds `dbm.DB`, so most of the `KVStore` interface functions are implemented. The other functions(mostly miscellaneous) are manually implemented.
+`dbadapter.Store` embeds `dbm.DBReadWriter`, so most of the `KVStore` interface functions are implemented. The other functions(mostly miscellaneous) are manually implemented.
 
 ## IAVL
 

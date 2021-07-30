@@ -54,7 +54,7 @@ type dbVersion struct {
 	btree *btree.BTree
 }
 
-var _ dbm.DB = (*MemDB)(nil)
+var _ dbm.DBConnection = (*MemDB)(nil)
 var _ dbm.DBReader = (*dbVersion)(nil)
 var _ dbm.DBReadWriter = (*dbVersion)(nil)
 

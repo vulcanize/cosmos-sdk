@@ -96,5 +96,5 @@ func (dsa Store) CacheWrapWithListeners(storeKey types.StoreKey, listeners []typ
 	return cachekv.NewStore(listenkv.NewStore(dsa, storeKey, listeners))
 }
 
-// dbm.DB implements KVStore so we can CacheKVStore it.
+// DBReadWriter implements KVStore so we can CacheKVStore it.
 var _ types.KVStore = Store{}
