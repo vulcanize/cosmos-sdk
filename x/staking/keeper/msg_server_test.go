@@ -147,8 +147,9 @@ func TestCancelUnbondingDelegation(t *testing.T) {
 }
 
 func TestCreateValidatorWithLessThanMinCommission(t *testing.T) {
-	PKS := simapp.CreateTestPubKeys(1)
+	PKS := simapp.CreateTestPubKeys(2)
 	valConsPk1 := PKS[0]
+	valConsPk2 := PKS[1]
 
 	app := simapp.Setup(t, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
@@ -161,7 +162,7 @@ func TestCreateValidatorWithLessThanMinCommission(t *testing.T) {
 	app.StakingKeeper.SetParams(ctx, params)
 
 	// create validator with 0% commission
-	msg, err := stakingtypes.NewMsgCreateValidator(
+	msg1, err := stakingtypes.NewMsgCreateValidator(
 		sdk.ValAddress(addrs[0]),
 		valConsPk1,
 		sdk.NewInt64Coin(sdk.DefaultBondDenom, 100),
@@ -169,8 +170,18 @@ func TestCreateValidatorWithLessThanMinCommission(t *testing.T) {
 		stakingtypes.NewCommissionRates(sdk.NewDec(0), sdk.NewDecWithPrec(5, 1), sdk.NewDec(0)),
 		sdk.OneInt())
 	require.NoError(t, err)
+	msg2, err := stakingtypes.NewMsgCreateValidator(
+		sdk.ValAddress(addrs[1]),
+		valConsPk2,
+		sdk.NewInt64Coin(sdk.DefaultBondDenom, 100),
+		stakingtypes.Description{},
+		stakingtypes.NewCommissionRates(sdk.NewDec(0), sdk.NewDecWithPrec(5, 1), sdk.NewDec(0)),
+		sdk.OneInt())
+	require.NoError(t, err)
 
 	svr := keeper.NewMsgServerImpl(app.StakingKeeper)
-	_, err = svr.CreateValidator(ctx, msg)
+	_, err = svr.CreateValidator(ctx, msg1)
+	require.NoError(t, err)
+	_, err = svr.CreateValidator(ctx.WithBlockHeight(712001), msg2)
 	require.Error(t, err)
 }
