@@ -309,7 +309,7 @@ func (m *Manager) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, genesisData 
 		if genesisData[moduleName] == nil {
 			continue
 		}
-		ctx.Logger().Debug("running initialization for module", "module", moduleName)
+		ctx.Logger().Info("running initialization for module", "module", moduleName)
 
 		moduleValUpdates := m.Modules[moduleName].InitGenesis(ctx, cdc, genesisData[moduleName])
 
@@ -322,6 +322,7 @@ func (m *Manager) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, genesisData 
 			validatorUpdates = moduleValUpdates
 		}
 	}
+	ctx.Logger().Info("Done init genesis")
 
 	// a chain must initialize with a non-empty validator set
 	if len(validatorUpdates) == 0 {
