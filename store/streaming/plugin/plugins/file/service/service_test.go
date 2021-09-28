@@ -1,4 +1,4 @@
-package file
+package service
 
 import (
 	"encoding/binary"
@@ -22,7 +22,7 @@ import (
 var (
 	interfaceRegistry            = codecTypes.NewInterfaceRegistry()
 	testMarshaller               = codec.NewProtoCodec(interfaceRegistry)
-	testStreamingService         *StreamingService
+	testStreamingService         *FileStreamingService
 	testListener1, testListener2 types.WriteListener
 	emptyContext                 = sdk.Context{}
 
@@ -124,15 +124,16 @@ func TestIntermediateWriter(t *testing.T) {
 	require.Nil(t, err)
 }
 
+// change this to write to in-memory io.Writer (e.g. bytes.Buffer)
 func TestFileStreamingService(t *testing.T) {
 	err := os.Mkdir(testDir, 0700)
 	require.Nil(t, err)
 	defer os.RemoveAll(testDir)
 
 	testKeys := []sdk.StoreKey{mockStoreKey1, mockStoreKey2}
-	testStreamingService, err = NewStreamingService(testDir, testPrefix, testKeys, testMarshaller)
+	testStreamingService, err = NewFileStreamingService(testDir, testPrefix, testKeys, testMarshaller)
 	require.Nil(t, err)
-	require.IsType(t, &StreamingService{}, testStreamingService)
+	require.IsType(t, &FileStreamingService{}, testStreamingService)
 	require.Equal(t, testPrefix, testStreamingService.filePrefix)
 	require.Equal(t, testDir, testStreamingService.writeDir)
 	require.Equal(t, testMarshaller, testStreamingService.codec)

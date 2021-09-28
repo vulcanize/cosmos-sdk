@@ -1,4 +1,4 @@
-package streaming
+package plugin_test
 
 import (
 	"testing"
