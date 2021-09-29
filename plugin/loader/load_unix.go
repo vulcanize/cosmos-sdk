@@ -7,7 +7,7 @@ import (
 	"errors"
 	"plugin"
 
-	cplugin "github.com/cosmos/cosmos-sdk/store/streaming/plugin"
+	cplugin "github.com/cosmos/cosmos-sdk/plugin"
 )
 
 func init() {
@@ -19,7 +19,7 @@ func unixLoadPlugin(fi string) ([]cplugin.Plugin, error) {
 	if err != nil {
 		return nil, err
 	}
-	pls, err := pl.Lookup("Plugins")
+	pls, err := pl.Lookup(cplugin.PLUGINS_SYMBOL)
 	if err != nil {
 		return nil, err
 	}

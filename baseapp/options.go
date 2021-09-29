@@ -9,6 +9,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/snapshots"
 	"github.com/cosmos/cosmos-sdk/store"
+	"github.com/cosmos/cosmos-sdk/store/streaming"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/tx"
 )
@@ -231,7 +232,7 @@ func (app *BaseApp) SetInterfaceRegistry(registry types.InterfaceRegistry) {
 }
 
 // SetStreamingService is used to set a streaming service into the BaseApp hooks and load the listeners into the multistore
-func (app *BaseApp) SetStreamingService(s StreamingService) {
+func (app *BaseApp) SetStreamingService(s streaming.Service) {
 	// add the listeners for each StoreKey
 	for key, lis := range s.Listeners() {
 		app.cms.AddListeners(key, lis)

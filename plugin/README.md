@@ -1,12 +1,11 @@
-# State Streaming Services
-This package contains the interface for the `streaming.Service` used to write state changes out from individual KVStores to a
-file or stream, as described in [ADR-038](../docs/architecture/adr-038-state-listening.md) and defined in [types/streaming.go](../types/streaming.go).
+# Comsos-SDK plugins
+This package contains an extensible plugin system for the Cosmos-SDK. Included in this top-level package is the base interface
+for a Cosmos-SDK plugin, as well as more specific plugin interface definitions that build on top of this base interface.
+The [loader](./loader) sub-directory contains the Go package and scripts for loading plugins into the SDK. The [plugins](./plugins)
+sub-directory contains the preloaded plugins and a script for building them, this is also the directory that the plugin loader will look
+for non-preloaded plugins by default.
 
-Specific `streaming.Service` implementations are written and loaded as plugins.
-The plugin interfaces, loader functions, and plugin implementations are defined in the [plugin directory](../../plugin/README.md)
-The `plugin.StreamingService` extends the [base plugin interface](../../plugin/plugin.go) with a `Register` method used to register the plugin streaming service
-with the `BaseApp` and a `Start` method to start the streaming service.
-
+The base plugin interface is defined as:
 ```go
 // Plugin is the base interface for all kinds of cosmos-sdk plugins
 // It will be included in interfaces of different Plugins
@@ -25,28 +24,14 @@ type Plugin interface {
     // Closer interface to shutting down the plugin process
     io.Closer
 }
-
-// StreamingService interface for plugins that load a streaming.Service onto a baseapp.BaseApp
-type StreamingService interface {
-    // Register configures and registers the plugin streaming service with the BaseApp
-    Register(bApp *baseapp.BaseApp, marshaller codec.BinaryCodec, keys map[string]*types.KVStoreKey) error
-    
-    // Start starts the background streaming process of the plugin streaming service
-    Start(wg *sync.WaitGroup)
-    
-    // Plugin is the base Plugin interface
-    Plugin
-}
 ```
 
-A `streaming.Service` is configured from within an App using the `AppOptions` loaded from the app.toml file.
-Every `streaming.Service` plugin will be configured within the `streaming` TOML mapping, and the exact keys/parameters
-present in this mapping will be dependent on the specific `streaming.Service`.
+Specific plugin types extend this interface, enabling them to work with the loader tooling defined in the [loader sub-directory](./loader).
 
-Additionally, the plugin system itself is configured using the `plugins` TOML mapping. There are three
+The plugin system itself is configured using the `plugins` TOML mapping in the App's app.toml file. There are three
 parameters for configuring the plugins: `plugins.on`, `plugins.disabled` and `plugins.dir`. `plugins.on` is a bool that turns on or off the plugin
 system at large, `plugins.dir` directs the system to a directory to load plugins from, and `plugins.disabled` is a list
-of strings for the plugins we want to disable (useful for disabling preloaded plugins).
+of names for the plugins we want to disable (useful for disabling preloaded plugins).
 
 ```toml
 [plugins]
@@ -62,7 +47,7 @@ of strings for the plugins we want to disable (useful for disabling preloaded pl
 ```
 
 As mentioned above, some plugins can be preloaded. This means they do not need to be loaded from the specified `plugins.dir` and instead
-are loaded by default. At this time the only preloaded plugin is the [file streaming service plugin](../../plugin/plugins/file).
+are loaded by default. At this time the only preloaded plugin is the [file streaming service plugin](./plugins/file).
 Plugins can be added to the preloaded set by adding the plugin to the [plugins dir](../../plugin/plugin.go) and modifying the [preload_list](../../plugin/loader/preload_list).
 
 In your application, if the  `plugins.on` is set to `true` use this to direct the invocation of `NewPluginLoader` and walk through

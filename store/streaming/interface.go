@@ -1,6 +1,7 @@
 package streaming
 
 import (
+	"io"
 	"sync"
 
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -12,11 +13,13 @@ import (
 // Service interface for registering WriteListeners with the BaseApp and updating the service with the ABCI messages using the hooks
 type Service interface {
 	// Stream is the streaming service loop, awaits kv pairs and writes them to some destination stream or file
-	Stream(wg *sync.WaitGroup, quitChan <-chan struct{})
+	Stream(wg *sync.WaitGroup)
 	// Listeners returns the streaming service's listeners for the BaseApp to register
 	Listeners() map[types.StoreKey][]store.WriteListener
 	// Listener interface for hooking into the ABCI messages from inside the BaseApp
 	Listener
+	// Closer interface
+	io.Closer
 }
 
 // Listener interface used to hook into the ABCI message processing of the BaseApp

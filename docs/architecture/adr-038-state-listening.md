@@ -204,21 +204,28 @@ func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 
 ### Exposing the data
 
-We will introduce a new `StreamingService` interface for exposing `WriteListener` data streams to external consumers.
+We will introduce a new `streaming.Service` interface for exposing `WriteListener` data streams to external consumers.
+This interface will build on a `streaming.Listener` interface that exposes methods for hooking into the `BaseApp` to relay
+the ABCI requests and responses to the `streaming.Service`.
 
 ```go
-// StreamingListener interface used to hook into the ABCI message processing of the BaseApp
-type StreamingListener interface {
+// Listener interface used to hook into the ABCI message processing of the BaseApp
+type Listener interface {
 	ListenBeginBlock(ctx sdk.Context, req abci.RequestBeginBlock, res abci.ResponseBeginBlock) error // update the streaming service with the latest BeginBlock messages
 	ListenEndBlock(ctx sdk.Context, req abci.RequestEndBlock, res abci.ResponseEndBlock) error// update the steaming service with the latest EndBlock messages
 	ListenDeliverTx(ctx sdk.Context, req abci.RequestDeliverTx, res abci.ResponseDeliverTx) error // update the steaming service with the latest DeliverTx messages
 }
 
-// StreamingService interface for registering WriteListeners with the BaseApp and updating the service with the ABCI messages using the hooks
-type StreamingService interface {
-	Stream(wg *sync.WaitGroup, quitChan <-chan struct{}) // streaming service loop, awaits kv pairs and writes them to some destination stream or file
-	Listeners() map[sdk.StoreKey][]storeTypes.WriteListener // returns the streaming service's listeners for the BaseApp to register 
-	StreamingListener
+// Service interface for registering WriteListeners with the BaseApp and updating the service with the ABCI messages using the hooks
+type Service interface {
+	// Stream is the streaming service loop, awaits kv pairs and writes them to some destination stream or file 
+	Stream(wg *sync.WaitGroup) 
+	// Listeners returns the streaming service's listeners for the BaseApp to register 
+	Listeners() map[types.StoreKey][]store.WriteListener 
+	// Listener interface for hooking into the ABCI messages from inside the BaseApp 
+	Listener
+	// Closer interface 
+	io.Closer
 }
 ```
 

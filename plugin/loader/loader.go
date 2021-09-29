@@ -2,19 +2,20 @@ package loader
 
 import (
 	"fmt"
-	serverTypes "github.com/cosmos/cosmos-sdk/server/types"
-	"github.com/spf13/cast"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 
-	opentracing "github.com/opentracing/opentracing-go"
-
-	"github.com/cosmos/cosmos-sdk/store/streaming/plugin"
-
+	"github.com/spf13/cast"
 	logging "github.com/tendermint/tendermint/libs/log"
+
+	"github.com/cosmos/cosmos-sdk/baseapp"
+	"github.com/cosmos/cosmos-sdk/codec"
+	"github.com/cosmos/cosmos-sdk/plugin"
+	serverTypes "github.com/cosmos/cosmos-sdk/server/types"
+	"github.com/cosmos/cosmos-sdk/types"
 )
 
 var preloadPlugins []plugin.Plugin
@@ -80,11 +81,11 @@ func (ls loaderState) String() string {
 // 4. Optionally call Start to start plugins.
 // 5. Call Close to close all plugins.
 type PluginLoader struct {
-	state   loaderState
-	plugins map[string]plugin.Plugin
-	started []plugin.Plugin
-	opts  serverTypes.AppOptions
-	logger logging.Logger
+	state    loaderState
+	plugins  map[string]plugin.Plugin
+	started  []plugin.Plugin
+	opts     serverTypes.AppOptions
+	logger   logging.Logger
 	disabled []string
 }
 
@@ -96,8 +97,8 @@ func NewPluginLoader(opts serverTypes.AppOptions, logger logging.Logger) (*Plugi
 			return nil, err
 		}
 	}
-	loader.disabled = cast.ToStringSlice(opts.Get(plugin.DISABLED_PLUGINS_KEY))
-	pluginDir := cast.ToString(opts.Get(plugin.PLUGIN_DIRECTORY_KEY))
+	loader.disabled = cast.ToStringSlice(opts.Get(plugin.PLUGIN_DISABLED_TOML_KEY))
+	pluginDir := cast.ToString(opts.Get(plugin.PLUGIN_DIR_TOML_KEY))
 	if pluginDir == "" {
 		pluginDir = filepath.Join(os.Getenv("GOPATH"), plugin.DEFAULT_PLUGIN_DIRECTORY)
 	}
@@ -218,29 +219,24 @@ func (loader *PluginLoader) Initialize() error {
 		return err
 	}
 	for name, p := range loader.plugins {
-		err := p.Init(&plugin.Environment{
-			Repo:   loader.repo,
-			Config: loader.config.Plugins[name].Config,
-		})
-		if err != nil {
+		if err := p.Init(loader.opts); err != nil {
 			loader.state = loaderFailed
-			return err
+			return fmt.Errorf("unable to initialize plugin %s: %v", name, err)
 		}
 	}
 
 	return loader.transition(loaderInitializing, loaderInitialized)
 }
 
-// Inject hooks all the plugins into the appropriate subsystems.
-func (loader *PluginLoader) Inject() error {
+// Inject hooks all the plugins into the BaseApp.
+func (loader *PluginLoader) Inject(bApp *baseapp.BaseApp, marshaller codec.BinaryCodec, keys map[string]*types.KVStoreKey) error {
 	if err := loader.transition(loaderInitialized, loaderInjecting); err != nil {
 		return err
 	}
 
 	for _, pl := range loader.plugins {
-		if pl, ok := pl.(plugin.StreamingServicePlugin); ok {
-			err := injectIPLDPlugin(pl)
-			if err != nil {
+		if pl, ok := pl.(plugin.StreamingService); ok {
+			if err := pl.Register(bApp, marshaller, keys); err != nil {
 				loader.state = loaderFailed
 				return err
 			}
@@ -251,21 +247,13 @@ func (loader *PluginLoader) Inject() error {
 }
 
 // Start starts all long-running plugins.
-func (loader *PluginLoader) Start(node *core.IpfsNode) error {
+func (loader *PluginLoader) Start(wg *sync.WaitGroup) error {
 	if err := loader.transition(loaderInjected, loaderStarting); err != nil {
 		return err
 	}
-	iface, err := coreapi.NewCoreAPI(node)
-	if err != nil {
-		return err
-	}
 	for _, pl := range loader.plugins {
-		if pl, ok := pl.(plugin.StreamingServicePlugin); ok {
-			err := pl.Start(iface)
-			if err != nil {
-				_ = loader.Close()
-				return err
-			}
+		if pl, ok := pl.(plugin.StreamingService); ok {
+			pl.Start(wg)
 			loader.started = append(loader.started, pl)
 		}
 	}
@@ -286,15 +274,12 @@ func (loader *PluginLoader) Close() error {
 	started := loader.started
 	loader.started = nil
 	for _, pl := range started {
-		if closer, ok := pl.(io.Closer); ok {
-			err := closer.Close()
-			if err != nil {
-				errs = append(errs, fmt.Sprintf(
-					"error closing plugin %s: %s",
-					pl.Name(),
-					err.Error(),
-				))
-			}
+		if err := pl.Close(); err != nil {
+			errs = append(errs, fmt.Sprintf(
+				"error closing plugin %s: %s",
+				pl.Name(),
+				err.Error(),
+			))
 		}
 	}
 	if errs != nil {
@@ -302,22 +287,5 @@ func (loader *PluginLoader) Close() error {
 		return fmt.Errorf(strings.Join(errs, "\n"))
 	}
 	loader.state = loaderClosed
-	return nil
-}
-
-func injectDatastorePlugin(pl plugin.PluginDatastore) error {
-	return fsrepo.AddDatastoreConfigHandler(pl.DatastoreTypeName(), pl.DatastoreConfigParser())
-}
-
-func injectIPLDPlugin(pl plugin.PluginIPLD) error {
-	return pl.Register(multicodec.DefaultRegistry)
-}
-
-func injectTracerPlugin(pl plugin.PluginTracer) error {
-	tracer, err := pl.InitTracer()
-	if err != nil {
-		return err
-	}
-	opentracing.SetGlobalTracer(tracer)
 	return nil
 }

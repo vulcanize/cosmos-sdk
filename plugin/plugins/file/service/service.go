@@ -33,7 +33,7 @@ subsequent state changes are written out to this file until the next `BeginBlock
 the length-prefixed protobuf encoded `EndBlock` request is written, and the response is written at the tail.
 */
 
-var _ streaming.Service = &FileStreamingService{}
+var _ streaming.Service = (*FileStreamingService)(nil)
 
 // FileStreamingService is a concrete implementation of streaming.Service that writes state changes out to files
 type FileStreamingService struct {
@@ -46,6 +46,7 @@ type FileStreamingService struct {
 	stateCacheLock     *sync.Mutex                            // mutex for the state cache
 	currentBlockNumber int64                                  // the current block number
 	currentTxIndex     int64                                  // the index of the current tx
+	quitChan           chan struct{}                          // channel used for synchronize closure
 }
 
 // IntermediateWriter is used so that we do not need to update the underlying io.Writer inside the StoreKVPairWriteListener
@@ -251,13 +252,14 @@ func (fss *FileStreamingService) openEndBlockFile() (*os.File, error) {
 // Stream spins up a goroutine select loop which awaits length-prefixed binary encoded KV pairs and caches them in the order they were received
 // Do we need this and an intermediate writer? We could just write directly to the buffer on calls to Write
 // But then we don't support a Stream interface, which could be needed for other types of streamers
-func (fss *FileStreamingService) Stream(wg *sync.WaitGroup, quitChan <-chan struct{}) {
+func (fss *FileStreamingService) Stream(wg *sync.WaitGroup) {
+	fss.quitChan = make(chan struct{})
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		for {
 			select {
-			case <-quitChan:
+			case <-fss.quitChan:
 				return
 			case by := <-fss.srcChan:
 				fss.stateCacheLock.Lock()
@@ -266,6 +268,12 @@ func (fss *FileStreamingService) Stream(wg *sync.WaitGroup, quitChan <-chan stru
 			}
 		}
 	}()
+}
+
+// Close satisfies the io.Closer interface
+func (fss *FileStreamingService) Close() error {
+	close(fss.quitChan)
+	return nil
 }
 
 // isDirWriteable checks if dir is writable by writing and removing a file

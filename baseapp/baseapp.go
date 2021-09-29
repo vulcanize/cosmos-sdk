@@ -15,6 +15,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/snapshots"
 	"github.com/cosmos/cosmos-sdk/store"
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
+	"github.com/cosmos/cosmos-sdk/store/streaming"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/tx"
 )
@@ -128,7 +129,7 @@ type BaseApp struct { // nolint: maligned
 
 	// StreamingListener for hooking into the ABCI message processing of the BaseApp
 	// and exposing the requests and responses to external consumers
-	streamingListeners []StreamingListener
+	streamingListeners []streaming.Listener
 }
 
 // NewBaseApp returns a reference to an initialized BaseApp. It accepts a

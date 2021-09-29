@@ -5,7 +5,7 @@ package loader
 import (
 	"errors"
 
-	cplugin "github.com/cosmos/cosmos-sdk/store/streaming/plugin"
+	cplugin "github.com/cosmos/cosmos-sdk/plugin"
 )
 
 func init() {
