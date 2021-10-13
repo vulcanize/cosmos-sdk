@@ -41,15 +41,15 @@ func TestMsgSendValidation(t *testing.T) {
 		{": invalid coins", NewMsgSend(addr1, addr2, atom0)},                   // non positive coin
 		{"123atom,0eth: invalid coins", NewMsgSend(addr1, addr2, atom123eth0)}, // non positive coin in multicoins
 		{"invalid from address: empty address string is not allowed: invalid address", NewMsgSend(addrEmpty, addr2, atom123)},
-		{"invalid to address: empty address string is not allowed: invalid address", NewMsgSend(addr1, addrEmpty, atom123)},
+		{"Invalid recipient address :(decoding bech32 failed: invalid bech32 string length 0): invalid address", NewMsgSend(addr1, addrEmpty, atom123)},
 	}
 
 	for _, tc := range cases {
 		err := tc.msg.ValidateBasic()
 		if tc.expectedErr == "" {
-			require.Nil(t, err)
+			require.Nil(t, err, tc)
 		} else {
-			require.EqualError(t, err, tc.expectedErr)
+			require.EqualError(t, err, tc.expectedErr, tc)
 		}
 	}
 }
