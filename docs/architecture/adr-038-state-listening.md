@@ -204,26 +204,29 @@ func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 
 ### Exposing the data
 
-We will introduce a new `streaming.Service` interface for exposing `WriteListener` data streams to external consumers.
-This interface will build on a `streaming.Listener` interface that exposes methods for hooking into the `BaseApp` to relay
-the ABCI requests and responses to the `streaming.Service`.
+We will introduce a new `StreamingService` interface for exposing `WriteListener` data streams to external consumers.
+In addition to streaming state changes as `StoreKVPair`s, the interface satisfies an `ABCIListener` interface that plugs into the BaseApp
+and relays ABCI requests and responses so that the service can group the state changes with the ABCI requests that affected them and the ABCI responses they affected.
 
 ```go
-// Listener interface used to hook into the ABCI message processing of the BaseApp
-type Listener interface {
-	ListenBeginBlock(ctx sdk.Context, req abci.RequestBeginBlock, res abci.ResponseBeginBlock) error // update the streaming service with the latest BeginBlock messages
-	ListenEndBlock(ctx sdk.Context, req abci.RequestEndBlock, res abci.ResponseEndBlock) error// update the steaming service with the latest EndBlock messages
-	ListenDeliverTx(ctx sdk.Context, req abci.RequestDeliverTx, res abci.ResponseDeliverTx) error // update the steaming service with the latest DeliverTx messages
+// ABCIListener interface used to hook into the ABCI message processing of the BaseApp
+type ABCIListener interface {
+	// ListenBeginBlock updates the streaming service with the latest BeginBlock messages 
+	ListenBeginBlock(ctx types.Context, req abci.RequestBeginBlock, res abci.ResponseBeginBlock) error 
+	// ListenEndBlock updates the steaming service with the latest EndBlock messages 
+	ListenEndBlock(ctx types.Context, req abci.RequestEndBlock, res abci.ResponseEndBlock) error 
+	// ListenDeliverTx updates the steaming service with the latest DeliverTx messages 
+	ListenDeliverTx(ctx types.Context, req abci.RequestDeliverTx, res abci.ResponseDeliverTx) error
 }
 
-// Service interface for registering WriteListeners with the BaseApp and updating the service with the ABCI messages using the hooks
-type Service interface {
+// StreamingService interface for registering WriteListeners with the BaseApp and updating the service with the ABCI messages using the hooks
+type StreamingService interface {
 	// Stream is the streaming service loop, awaits kv pairs and writes them to some destination stream or file 
-	Stream(wg *sync.WaitGroup) 
+	Stream(wg *sync.WaitGroup) error
 	// Listeners returns the streaming service's listeners for the BaseApp to register 
 	Listeners() map[types.StoreKey][]store.WriteListener 
-	// Listener interface for hooking into the ABCI messages from inside the BaseApp 
-	Listener
+	// ABCIListener interface for hooking into the ABCI messages from inside the BaseApp 
+	ABCIListener 
 	// Closer interface 
 	io.Closer
 }
@@ -235,18 +238,45 @@ We will introduce an implementation of `StreamingService` which writes state cha
 This service uses the same `StoreKVPairWriteListener` for every KVStore, writing all the KV pairs from every KVStore
 out to the same files, relying on the `StoreKey` field in the `StoreKVPair` protobuf message to later distinguish the source for each pair.
 
-The file naming schema is as such:
+Writing to a file is the simplest approach for streaming the data out to consumers.
+This approach also provides the advantages of being persistent and durable, and the files can be read directly,
+or an auxiliary streaming services can read from the files and serve the data over a remote interface.
 
-* After every `BeginBlock` request a new file is created with the name `block-{N}-begin`, where N is the block number. All
-subsequent state changes are written out to this file until the first `DeliverTx` request is received. At the head of these files,
-  the length-prefixed protobuf encoded `BeginBlock` request is written, and the response is written at the tail.
-* After every `DeliverTx` request a new file is created with the name `block-{N}-tx-{M}` where N is the block number and M
-is the tx number in the block (i.e. 0, 1, 2...). All subsequent state changes are written out to this file until the next
-`DeliverTx` request is received or an `EndBlock` request is received. At the head of these files, the length-prefixed protobuf
-  encoded `DeliverTx` request is written, and the response is written at the tail.
-* After every `EndBlock` request a new file is created with the name `block-{N}-end`, where N is the block number. All
-subsequent state changes are written out to this file until the next `BeginBlock` request is received. At the head of these files,
-  the length-prefixed protobuf encoded `EndBlock` request is written, and the response is written at the tail.
+##### Encoding
+
+For each pair of `BeginBlock` requests and responses, a file is created and named `block-{N}-begin`, where N is the block number.
+At the head of this file the length-prefixed protobuf encoded `BeginBlock` request is written.
+At the tail of this file the length-prefixed protobuf encoded `BeginBlock` response is written.
+In between these two encoded messages, the state changes that occurred due to the `BeginBlock` request are written chronologically as
+a series of length-prefixed protobuf encoded `StoreKVPair`s representing `Set` and `Delete` operations within the KVStores the service
+is configured to listen to.
+
+For each pair of `DeliverTx` requests and responses, a file is created and named `block-{N}-tx-{M}` where N is the block number and M
+is the tx number in the block (i.e. 0, 1, 2...).
+At the head of this file the length-prefixed protobuf encoded `DeliverTx` request is written.
+At the tail of this file the length-prefixed protobuf encoded `DeliverTx` response is written.
+In between these two encoded messages, the state changes that occurred due to the `DeliverTx` request are written chronologically as
+a series of length-prefixed protobuf encoded `StoreKVPair`s representing `Set` and `Delete` operations within the KVStores the service
+is configured to listen to.
+
+For each pair of `EndBlock` requests and responses, a file is created and named `block-{N}-end`, where N is the block number.
+At the head of this file the length-prefixed protobuf encoded `EndBlock` request is written.
+At the tail of this file the length-prefixed protobuf encoded `EndBlock` response is written.
+In between these two encoded messages, the state changes that occurred due to the `EndBlock` request are written chronologically as
+a series of length-prefixed protobuf encoded `StoreKVPair`s representing `Set` and `Delete` operations within the KVStores the service
+is configured to listen to.
+
+##### Decoding
+
+To decode the files written in the above format we read all the bytes from a given file into memory and segment them into proto
+messages based on the length-prefixing of each message. Once segmented, it is known that the first message is the ABCI request,
+the last message is the ABCI response, and that every message in between is a `StoreKVPair`. This enables us to decode each segment into
+the appropriate message type.
+
+The type of ABCI req/res, the block height, and the transaction index (where relevant) is known
+from the file name, and the KVStore each `StoreKVPair` originates from is known since the `StoreKey` is included as a field in the proto message.
+
+##### Implementation example
 
 ```go
 // FileStreamingService is a concrete implementation of StreamingService that writes state changes out to a file
@@ -364,10 +394,6 @@ func (fss *FileStreamingService) Stream(wg *sync.WaitGroup, quitChan <-chan stru
 }
 ```
 
-Writing to a file is the simplest approach for streaming the data out to consumers.
-This approach also provides the advantages of being persistent and durable, and the files can be read directly,
-or an auxiliary streaming services can read from the files and serve the data over a remote interface.
-
 #### Auxiliary streaming service
 
 We will create a separate standalone process that reads and internally queues the state as it is written out to these files
@@ -481,12 +507,14 @@ Note: the actual namespace is TBD.
 [streamers]
     [streamers.file]
         keys = ["list", "of", "store", "keys", "we", "want", "to", "expose", "for", "this", "streaming", "service"]
-        writeDir = "path to the write directory"
+        write_dir = "path to the write directory"
         prefix = "optional prefix to prepend to the generated file names"
 ```
 
 We will also provide a mapping of the TOML `store.streamers` "file" configuration option to a helper functions for constructing the specified
 streaming service. In the future, as other streaming services are added, their constructors will be added here as well.
+
+Each configured streamer will receive the
 
 ```go
 // ServiceConstructor is used to construct a streaming service
@@ -523,11 +551,11 @@ func (sst ServiceType) String() string {
 
 // ServiceConstructorLookupTable is a mapping of streaming.ServiceTypes to streaming.ServiceConstructors
 var ServiceConstructorLookupTable = map[ServiceType]ServiceConstructor{
-  File: FileStreamingConstructor,
+  File: NewFileStreamingService,
 }
 
-// NewServiceConstructor returns the streaming.ServiceConstructor corresponding to the provided name
-func NewServiceConstructor(name string) (ServiceConstructor, error) {
+// ServiceTypeFromString returns the streaming.ServiceConstructor corresponding to the provided name
+func ServiceTypeFromString(name string) (ServiceConstructor, error) {
   ssType := NewStreamingServiceType(name)
   if ssType == Unknown {
     return nil, fmt.Errorf("unrecognized streaming service name %s", name)
@@ -538,10 +566,10 @@ func NewServiceConstructor(name string) (ServiceConstructor, error) {
   return nil, fmt.Errorf("streaming service constructor of type %s not found", ssType.String())
 }
 
-// FileStreamingConstructor is the streaming.ServiceConstructor function for creating a FileStreamingService
-func FileStreamingConstructor(opts serverTypes.AppOptions, keys []sdk.StoreKey, marshaller codec.BinaryMarshaler) (sdk.StreamingService, error) {
+// NewFileStreamingService is the streaming.ServiceConstructor function for creating a FileStreamingService
+func NewFileStreamingService(opts serverTypes.AppOptions, keys []sdk.StoreKey, marshaller codec.BinaryMarshaler) (sdk.StreamingService, error) {
   filePrefix := cast.ToString(opts.Get("streamers.file.prefix"))
-  fileDir := cast.ToString(opts.Get("streamers.file.writeDir"))
+  fileDir := cast.ToString(opts.Get("streamers.file.write_dir"))
   return file.NewStreamingService(fileDir, filePrefix, keys, marshaller)
 }
 ```
@@ -570,13 +598,24 @@ func NewSimApp(
 	// configure state listening capabilities using AppOptions
 	listeners := cast.ToStringSlice(appOpts.Get("store.streamers"))
 	for _, listenerName := range listeners {
-		// get the store keys allowed to be exposed for this streaming service/state listeners
-		exposeKeyStrs := cast.ToStringSlice(appOpts.Get(fmt.Sprintf("streamers.%s.keys", listenerName)))
-		exposeStoreKeys := make([]storeTypes.StoreKey, 0, len(exposeKeyStrs))
-		for _, keyStr := range exposeKeyStrs {
-			if storeKey, ok := keys[keyStr]; ok {
+		// get the store keys allowed to be exposed for this streaming service 
+		exposeKeyStrs := cast.ToStringSlice(appOpts.Get(fmt.Sprintf("streamers.%s.keys", streamerName)))
+		var exposeStoreKeys []sdk.StoreKey
+		if exposeAll(exposeKeyStrs) { // if list contains `*`, expose all StoreKeys 
+			exposeStoreKeys = make([]sdk.StoreKey, 0, len(keys))
+			for _, storeKey := range keys {
 				exposeStoreKeys = append(exposeStoreKeys, storeKey)
 			}
+		} else {
+			exposeStoreKeys = make([]sdk.StoreKey, 0, len(exposeKeyStrs))
+			for _, keyStr := range exposeKeyStrs {
+				if storeKey, ok := keys[keyStr]; ok {
+					exposeStoreKeys = append(exposeStoreKeys, storeKey)
+				}
+			}
+		}
+		if len(exposeStoreKeys) == 0 { // short circuit if we are not exposing anything 
+			continue
 		}
 		// get the constructor for this listener name
 		constructor, err := baseapp.NewStreamingServiceConstructor(listenerName)
