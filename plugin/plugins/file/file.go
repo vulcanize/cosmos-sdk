@@ -66,10 +66,11 @@ func (ssp *streamingServicePlugin) Init(env serverTypes.AppOptions) error {
 // Register satisfies the plugin.StreamingService interface
 func (ssp *streamingServicePlugin) Register(bApp *baseapp.BaseApp, marshaller codec.BinaryCodec, keys map[string]*sdk.KVStoreKey) error {
 	// load all the params required for this plugin from the provided AppOptions
-	filePrefix := cast.ToString(ssp.opts.Get(fmt.Sprintf("%s.%s.%s", plugin.PLUGIN_TOML_KEY, PLUGIN_NAME, PREFIX_PARAM)))
-	fileDir := cast.ToString(ssp.opts.Get(fmt.Sprintf("%s.%s.%s", plugin.PLUGIN_TOML_KEY, PLUGIN_NAME, WRITE_DIR_PARAM)))
+	tomlKeyPrefix := fmt.Sprintf("%s.%s.%s", plugin.PLUGIN_TOML_KEY, plugin.STREAMING_TOML_KEY, PLUGIN_NAME)
+	filePrefix := cast.ToString(ssp.opts.Get(fmt.Sprintf("%s.%s", tomlKeyPrefix, PREFIX_PARAM)))
+	fileDir := cast.ToString(ssp.opts.Get(fmt.Sprintf("%s.%s", tomlKeyPrefix, WRITE_DIR_PARAM)))
 	// get the store keys allowed to be exposed for this streaming service
-	exposeKeyStrings := cast.ToStringSlice(ssp.opts.Get(fmt.Sprintf("%s.%s.%s", plugin.PLUGIN_TOML_KEY, PLUGIN_NAME, KEYS_PARAM)))
+	exposeKeyStrings := cast.ToStringSlice(ssp.opts.Get(fmt.Sprintf("%s.%s", tomlKeyPrefix, KEYS_PARAM)))
 	var exposeStoreKeys []sdk.StoreKey
 	if len(exposeKeyStrings) > 0 {
 		exposeStoreKeys = make([]sdk.StoreKey, 0, len(exposeKeyStrings))

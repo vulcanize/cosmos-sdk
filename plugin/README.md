@@ -38,12 +38,11 @@ of names for the plugins we want to disable (useful for disabling preloaded plug
     on = false # turn the plugin system, as a whole, on or off
     disabled = ["list", "of", "plugin", "names", "to", "disable"]
     dir = "the directory to load non-preloaded plugins from; defaults to "
-
-[streaming] # a mapping of plugin-specific streaming service parameters, mapped to their pluginFileName
-    [streaming.file] # the specific parameters for the file streaming service plugin
-        keys = ["list", "of", "store", "keys", "we", "want", "to", "expose", "for", "this", "streaming", "service"]
-        writeDir = "path to the write directory"
-        prefix = "optional prefix to prepend to the generated file names"
+    [plugins.streaming] # a mapping of plugin-specific streaming service parameters, mapped to their pluginFileName
+        [plugins.streaming.file] # the specific parameters for the file streaming service plugin
+            keys = ["list", "of", "store", "keys", "we", "want", "to", "expose", "for", "this", "streaming", "service"]
+            writeDir = "path to the write directory"
+            prefix = "optional prefix to prepend to the generated file names"
 ```
 
 As mentioned above, some plugins can be preloaded. This means they do not need to be loaded from the specified `plugins.dir` and instead
