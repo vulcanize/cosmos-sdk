@@ -10,39 +10,49 @@ The base plugin interface is defined as:
 // Plugin is the base interface for all kinds of cosmos-sdk plugins
 // It will be included in interfaces of different Plugins
 type Plugin interface {
-    // Name should return unique name of the plugin
-    Name() string
-    
-    // Version returns current version of the plugin
-    Version() string
-    
-    // Init is called once when the Plugin is being loaded
-    // The plugin is passed the AppOptions for configuration
-    // A plugin will not necessarily have a functional Init
-    Init(env serverTypes.AppOptions) error
-    
-    // Closer interface to shutting down the plugin process
-    io.Closer
+	// Name should return unique name of the plugin
+	Name() string
+
+	// Version returns current version of the plugin
+	Version() string
+
+	// Init is called once when the Plugin is being loaded
+	// The plugin is passed the AppOptions for configuration
+	// A plugin will not necessarily have a functional Init
+	Init(env serverTypes.AppOptions) error
+
+	// Closer interface to shutting down the plugin process
+	io.Closer
 }
 ```
 
 Specific plugin types extend this interface, enabling them to work with the loader tooling defined in the [loader sub-directory](./loader).
 
 The plugin system itself is configured using the `plugins` TOML mapping in the App's app.toml file. There are three
+parameters for configuring the plugins: `plugins.on`, `plugins.disabled` and `plugins.dir`. `plugins.on` is a bool that
+turns on or off the plugin system at large, `plugins.dir` directs the system to a directory to load plugins from, and
+`plugins.disabled` is a list of names for the plugins we want to disable (useful for disabling preloaded plugins).
+
+Additionally, the plugin system itself is configured using the `plugins` TOML mapping. There are three
 parameters for configuring the plugins: `plugins.on`, `plugins.disabled` and `plugins.dir`. `plugins.on` is a bool that turns on or off the plugin
 system at large, `plugins.dir` directs the system to a directory to load plugins from, and `plugins.disabled` is a list
-of names for the plugins we want to disable (useful for disabling preloaded plugins).
+of strings for the plugins we want to disable (useful for disabling preloaded plugins).
 
 ```toml
 [plugins]
     on = false # turn the plugin system, as a whole, on or off
     disabled = ["list", "of", "plugin", "names", "to", "disable"]
-    dir = "the directory to load non-preloaded plugins from; defaults to "
+    dir = "the directory to load non-preloaded plugins from; defaults to cosmos-sdk/plugin/plugins"
     [plugins.streaming] # a mapping of plugin-specific streaming service parameters, mapped to their pluginFileName
+        # maximum amount of time the BaseApp will await positive acknowledgement of message receipt from all streaming services
+        # in milliseconds
+        global_ack_wait_limit = 500
         [plugins.streaming.file] # the specific parameters for the file streaming service plugin
             keys = ["list", "of", "store", "keys", "we", "want", "to", "expose", "for", "this", "streaming", "service"]
-            writeDir = "path to the write directory"
+            write_dir = "path to the write directory"
             prefix = "optional prefix to prepend to the generated file names"
+            ack = "false" # false == fire-and-forget; true == sends a message receipt success/fail signal
+            ack_wait_limit = 250 # millisecond delay before this service returns a message receipt failure signal to BaseApp
 ```
 
 As mentioned above, some plugins can be preloaded. This means they do not need to be loaded from the specified `plugins.dir` and instead
@@ -51,3 +61,52 @@ Plugins can be added to the preloaded set by adding the plugin to the [plugins d
 
 In your application, if the  `plugins.on` is set to `true` use this to direct the invocation of `NewPluginLoader` and walk through
 the steps of plugin loading, initialization, injection, starting, and closure.
+
+e.g. in `NewSimApp`:
+
+```go
+func NewSimApp(
+	logger log.Logger, db dbm.DB, traceStore io.Writer, loadLatest bool, skipUpgradeHeights map[int64]bool,
+	homePath string, invCheckPeriod uint, encodingConfig simappparams.EncodingConfig,
+	appOpts servertypes.AppOptions, baseAppOptions ...func(*baseapp.BaseApp),
+) *SimApp {
+
+	...
+
+	keys := sdk.NewKVStoreKeys(
+		authtypes.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
+		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
+		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey,
+		evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey,
+	)
+
+	pluginsOnKey := fmt.Sprintf("%s.%s", plugin.PLUGINS_TOML_KEY, plugin.PLUGINS_ON_TOML_KEY)
+	if cast.ToBool(appOpts.Get(pluginsOnKey)) {
+		// this loads the preloaded and any plugins found in `plugins.dir`
+		pluginLoader, err := loader.NewPluginLoader(appOpts, logger)
+		if err != nil {
+			// handle error
+		}
+
+		// initialize the loaded plugins
+		if err := pluginLoader.Initialize(); err != nil {
+			// handle error
+		}
+
+		// register the plugin(s) with the BaseApp
+		if err := pluginLoader.Inject(bApp, appCodec, keys); err != nil {
+			// handle error
+		}
+
+		// start the plugin services, optionally use wg to synchronize shutdown using io.Closer
+		wg := new(sync.WaitGroup)
+		if err := pluginLoader.Start(wg); err != nil {
+			// handler error
+		}
+	}
+
+	...
+
+	return app
+}
+```
