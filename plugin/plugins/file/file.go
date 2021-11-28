@@ -3,6 +3,7 @@ package file
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/spf13/cast"
 
@@ -11,7 +12,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/plugin"
 	"github.com/cosmos/cosmos-sdk/plugin/plugins/file/service"
 	serverTypes "github.com/cosmos/cosmos-sdk/server/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/store/types"
 )
 
 // Plugin name and version
@@ -29,11 +30,19 @@ const (
 	PREFIX_PARAM = "prefix"
 
 	// WRITE_DIR_PARAM is the directory we want to write files out to
-	WRITE_DIR_PARAM = "writeDir"
+	WRITE_DIR_PARAM = "write_dir"
 
 	// KEYS_PARAM is a list of the StoreKeys we want to expose for this streaming service
 	KEYS_PARAM = "keys"
+
+	// ACK_MODE configures whether to operate in fire-and-forget or success/failure acknowledgement mode
+	ACK_MODE = "ack"
+
+	// ACK_WAIT_LIMIT is the ack wait duration limit for this specific service
+	ACK_WAIT_LIMIT = "ack_wait_limit"
 )
+
+const minWaitDuration = time.Millisecond * 10
 
 // Plugins is the exported symbol for loading this plugin
 var Plugins = []plugin.Plugin{
@@ -45,7 +54,7 @@ type streamingServicePlugin struct {
 	opts serverTypes.AppOptions
 }
 
-var _ plugin.StreamingService = (*streamingServicePlugin)(nil)
+var _ plugin.StateStreamingPlugin = (*streamingServicePlugin)(nil)
 
 // Name satisfies the plugin.Plugin interface
 func (ssp *streamingServicePlugin) Name() string {
@@ -63,30 +72,38 @@ func (ssp *streamingServicePlugin) Init(env serverTypes.AppOptions) error {
 	return nil
 }
 
-// Register satisfies the plugin.StreamingService interface
-func (ssp *streamingServicePlugin) Register(bApp *baseapp.BaseApp, marshaller codec.BinaryCodec, keys map[string]*sdk.KVStoreKey) error {
+// Register satisfies the plugin.StateStreamingPlugin interface
+func (ssp *streamingServicePlugin) Register(bApp *baseapp.BaseApp, marshaller codec.BinaryCodec, keys map[string]*types.KVStoreKey) error {
 	// load all the params required for this plugin from the provided AppOptions
-	tomlKeyPrefix := fmt.Sprintf("%s.%s.%s", plugin.PLUGIN_TOML_KEY, plugin.STREAMING_TOML_KEY, PLUGIN_NAME)
+	tomlKeyPrefix := fmt.Sprintf("%s.%s.%s", plugin.PLUGINS_TOML_KEY, plugin.STREAMING_TOML_KEY, PLUGIN_NAME)
 	filePrefix := cast.ToString(ssp.opts.Get(fmt.Sprintf("%s.%s", tomlKeyPrefix, PREFIX_PARAM)))
 	fileDir := cast.ToString(ssp.opts.Get(fmt.Sprintf("%s.%s", tomlKeyPrefix, WRITE_DIR_PARAM)))
 	// get the store keys allowed to be exposed for this streaming service
 	exposeKeyStrings := cast.ToStringSlice(ssp.opts.Get(fmt.Sprintf("%s.%s", tomlKeyPrefix, KEYS_PARAM)))
-	var exposeStoreKeys []sdk.StoreKey
+	var exposeStoreKeys []types.StoreKey
 	if len(exposeKeyStrings) > 0 {
-		exposeStoreKeys = make([]sdk.StoreKey, 0, len(exposeKeyStrings))
+		exposeStoreKeys = make([]types.StoreKey, 0, len(exposeKeyStrings))
 		for _, keyStr := range exposeKeyStrings {
 			if storeKey, ok := keys[keyStr]; ok {
 				exposeStoreKeys = append(exposeStoreKeys, storeKey)
 			}
 		}
 	} else { // if none are specified, we expose all the keys
-		exposeStoreKeys = make([]sdk.StoreKey, 0, len(keys))
+		exposeStoreKeys = make([]types.StoreKey, 0, len(keys))
 		for _, storeKey := range keys {
 			exposeStoreKeys = append(exposeStoreKeys, storeKey)
 		}
 	}
+	ack := cast.ToBool(ssp.opts.Get(fmt.Sprintf("%s.%s", tomlKeyPrefix, ACK_MODE)))
+	var ackWaitLimit time.Duration
+	if ack {
+		ackWaitLimit = time.Millisecond * cast.ToDuration(ssp.opts.Get(fmt.Sprintf("%s.%s", tomlKeyPrefix, ACK_WAIT_LIMIT)))
+		if ackWaitLimit < minWaitDuration {
+			ackWaitLimit = minWaitDuration
+		}
+	}
 	var err error
-	ssp.fss, err = service.NewFileStreamingService(fileDir, filePrefix, exposeStoreKeys, marshaller)
+	ssp.fss, err = service.NewFileStreamingService(fileDir, filePrefix, exposeStoreKeys, marshaller, ack, ackWaitLimit)
 	if err != nil {
 		return err
 	}
@@ -95,9 +112,9 @@ func (ssp *streamingServicePlugin) Register(bApp *baseapp.BaseApp, marshaller co
 	return nil
 }
 
-// Start satisfies the plugin.StreamingService interface
-func (ssp *streamingServicePlugin) Start(wg *sync.WaitGroup) {
-	ssp.fss.Stream(wg)
+// Start satisfies the plugin.StateStreamingPlugin interface
+func (ssp *streamingServicePlugin) Start(wg *sync.WaitGroup) error {
+	return ssp.fss.Stream(wg)
 }
 
 // Close satisfies io.Closer
