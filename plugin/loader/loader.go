@@ -15,7 +15,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/plugin"
 	serverTypes "github.com/cosmos/cosmos-sdk/server/types"
-	"github.com/cosmos/cosmos-sdk/types"
+	storeTypes "github.com/cosmos/cosmos-sdk/store/types"
 )
 
 var preloadPlugins []plugin.Plugin
@@ -97,10 +97,10 @@ func NewPluginLoader(opts serverTypes.AppOptions, logger logging.Logger) (*Plugi
 			return nil, err
 		}
 	}
-	loader.disabled = cast.ToStringSlice(opts.Get(plugin.PLUGIN_DISABLED_TOML_KEY))
-	pluginDir := cast.ToString(opts.Get(plugin.PLUGIN_DIR_TOML_KEY))
+	loader.disabled = cast.ToStringSlice(opts.Get(plugin.PLUGINS_DISABLED_TOML_KEY))
+	pluginDir := cast.ToString(opts.Get(plugin.PLUGINS_DIR_TOML_KEY))
 	if pluginDir == "" {
-		pluginDir = filepath.Join(os.Getenv("GOPATH"), plugin.DEFAULT_PLUGIN_DIRECTORY)
+		pluginDir = filepath.Join(os.Getenv("GOPATH"), plugin.DEFAULT_PLUGINS_DIRECTORY)
 	}
 	if err := loader.LoadDirectory(pluginDir); err != nil {
 		return nil, err
@@ -229,13 +229,13 @@ func (loader *PluginLoader) Initialize() error {
 }
 
 // Inject hooks all the plugins into the BaseApp.
-func (loader *PluginLoader) Inject(bApp *baseapp.BaseApp, marshaller codec.BinaryCodec, keys map[string]*types.KVStoreKey) error {
+func (loader *PluginLoader) Inject(bApp *baseapp.BaseApp, marshaller codec.BinaryCodec, keys map[string]*storeTypes.KVStoreKey) error {
 	if err := loader.transition(loaderInitialized, loaderInjecting); err != nil {
 		return err
 	}
 
 	for _, pl := range loader.plugins {
-		if pl, ok := pl.(plugin.StreamingService); ok {
+		if pl, ok := pl.(plugin.StateStreamingPlugin); ok {
 			if err := pl.Register(bApp, marshaller, keys); err != nil {
 				loader.state = loaderFailed
 				return err
@@ -252,8 +252,10 @@ func (loader *PluginLoader) Start(wg *sync.WaitGroup) error {
 		return err
 	}
 	for _, pl := range loader.plugins {
-		if pl, ok := pl.(plugin.StreamingService); ok {
-			pl.Start(wg)
+		if pl, ok := pl.(plugin.StateStreamingPlugin); ok {
+			if err := pl.Start(wg); err != nil {
+				return err
+			}
 			loader.started = append(loader.started, pl)
 		}
 	}
