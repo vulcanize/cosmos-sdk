@@ -334,28 +334,28 @@ func (app *BaseApp) Commit() (res abci.ResponseCommit) {
 		halt = true
 	}
 
-	// each listener has an internal wait threshold after which it sends `false` to the ListenSuccess() channel
-	// but the BaseApp also imposes a global wait limit
-	maxWait := time.NewTicker(app.globalWaitLimit)
-	for _, lis := range app.abciListeners {
-		select {
-		case success := <-lis.ListenSuccess():
-			if success == false {
-				halt = true
-				break
-			}
-		case <-maxWait.C:
-			halt = true
-			break
-		}
-	}
-
 	if halt {
 		// Halt the binary and allow Tendermint to receive the ResponseCommit
 		// response with the commit ID hash. This will allow the node to successfully
 		// restart and process blocks assuming the halt configuration has been
 		// reset or moved to a more distant value.
 		app.halt()
+	}
+
+	// each listener has an internal wait threshold after which it sends `false` to the ListenSuccess() channel
+	// but the BaseApp also imposes a global wait limit
+	if app.globalWaitLimit > 0 {
+		maxWait := time.NewTicker(app.globalWaitLimit)
+		for _, lis := range app.abciListeners {
+			select {
+			case success := <-lis.ListenSuccess():
+				if success == false {
+					app.halt()
+				}
+			case <-maxWait.C:
+				app.halt()
+			}
+		}
 	}
 
 	if app.snapshotInterval > 0 && uint64(header.Height)%app.snapshotInterval == 0 {

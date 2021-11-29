@@ -1,4 +1,4 @@
-# Comsos-SDK plugins
+# Comsos-SDK Plugins
 This package contains an extensible plugin system for the Cosmos-SDK. Included in this top-level package is the base interface
 for a Cosmos-SDK plugin, as well as more specific plugin interface definitions that build on top of this base interface.
 The [loader](./loader) sub-directory contains the Go package and scripts for loading plugins into the SDK. The [plugins](./plugins)
@@ -33,26 +33,11 @@ parameters for configuring the plugins: `plugins.on`, `plugins.disabled` and `pl
 turns on or off the plugin system at large, `plugins.dir` directs the system to a directory to load plugins from, and
 `plugins.disabled` is a list of names for the plugins we want to disable (useful for disabling preloaded plugins).
 
-Additionally, the plugin system itself is configured using the `plugins` TOML mapping. There are three
-parameters for configuring the plugins: `plugins.on`, `plugins.disabled` and `plugins.dir`. `plugins.on` is a bool that turns on or off the plugin
-system at large, `plugins.dir` directs the system to a directory to load plugins from, and `plugins.disabled` is a list
-of strings for the plugins we want to disable (useful for disabling preloaded plugins).
-
 ```toml
 [plugins]
     on = false # turn the plugin system, as a whole, on or off
     disabled = ["list", "of", "plugin", "names", "to", "disable"]
     dir = "the directory to load non-preloaded plugins from; defaults to cosmos-sdk/plugin/plugins"
-    [plugins.streaming] # a mapping of plugin-specific streaming service parameters, mapped to their pluginFileName
-        # maximum amount of time the BaseApp will await positive acknowledgement of message receipt from all streaming services
-        # in milliseconds
-        global_ack_wait_limit = 500
-        [plugins.streaming.file] # the specific parameters for the file streaming service plugin
-            keys = ["list", "of", "store", "keys", "we", "want", "to", "expose", "for", "this", "streaming", "service"]
-            write_dir = "path to the write directory"
-            prefix = "optional prefix to prepend to the generated file names"
-            ack = "false" # false == fire-and-forget; true == sends a message receipt success/fail signal
-            ack_wait_limit = 250 # millisecond delay before this service returns a message receipt failure signal to BaseApp
 ```
 
 As mentioned above, some plugins can be preloaded. This means they do not need to be loaded from the specified `plugins.dir` and instead
@@ -109,4 +94,62 @@ func NewSimApp(
 
 	return app
 }
+```
+
+# State Streaming Plugin
+The `BaseApp` package contains the interface for a `StreamingService` used to write state changes out from individual KVStores to a
+file or stream, as described in [ADR-038](../docs/architecture/adr-038-state-listening.md).
+
+Specific `StreamingService` implementations are written and loaded as plugins by extending the above interface with a
+`StateStreamingPlugin` interface that adds `Register` method used to register the plugin's `StreamingService` with the
+`BaseApp` and a `Start` method to start the streaming service.
+
+```go
+// StateStreamingPlugin interface for plugins that load a streaming.Service onto a baseapp.BaseApp
+type StateStreamingPlugin interface {
+	// Register configures and registers the plugin streaming service with the BaseApp
+	Register(bApp *baseapp.BaseApp, marshaller codec.BinaryCodec, keys map[string]*types.KVStoreKey) error
+
+	// Start starts the background streaming process of the plugin streaming service
+	Start(wg *sync.WaitGroup) error
+
+	// Plugin is the base Plugin interface
+	Plugin
+}
+```
+
+A `StateStreamingPlugin` is configured from within an App using the `AppOptions` loaded from the app.toml file.
+Every `StateStreamingPlugin` will be configured within the `plugins.streaming` TOML mapping. The exact keys/parameters
+present in this mapping will be dependent on the specific `StateStreamingPlugin`, but we will introduce some standards
+here using the file `StateStreamingPlugin`:
+
+Plugin TOML configuration should be split into separate sub-tables for each kind of plugin (e.g. `plugins.streaming`).
+For streaming plugins a parameter `plugins.streaming.global_ack_wait_limit` is used to configure the maximum amount of time
+the BaseApp will wait for positive acknowledgement of receipt by the external streaming services before it considers
+the message relay to be a failure.
+
+Within these sub-tables, the parameters for a specific plugin of that kind are included in another sub-table (e.g. `plugins.streaming.file`).
+It is generally expected, but not required, that a streaming service plugin can be configured with a set of store keys
+(e.g. `plugins.streaming.file.keys`) for the stores it listens to and a flag (e.g. `plugins.streaming.file.ack`)
+that signifies whether the service operates in a fire-and-forget capacity or the BaseApp should require positive
+acknowledgement of message receipt by the service. In the case of "ack" mode, the service may also need to be
+configured with an acknowledgement wait limit specific to that individual service (e.g. `plugins.streaming.kafka.ack_wait_limit`).
+The file `StreamingService` does not have an individual `ack_wait_limit` since it operates synchronously with the App.
+
+e.g.
+
+```toml
+[plugins]
+    on = false # turn the plugin system, as a whole, on or off
+    disabled = ["list", "of", "plugin", "names", "to", "disable"]
+    dir = "the directory to load non-preloaded plugins from; defaults to cosmos-sdk/plugin/plugins"
+    [plugins.streaming] # a mapping of plugin-specific streaming service parameters, mapped to their pluginFileName
+        # maximum amount of time the BaseApp will await positive acknowledgement of message receipt from all streaming services
+        # in milliseconds
+        global_ack_wait_limit = 500
+        [plugins.streaming.file] # the specific parameters for the file streaming service plugin
+            keys = ["list", "of", "store", "keys", "we", "want", "to", "expose", "for", "this", "streaming", "service"]
+            write_dir = "path to the write directory"
+            prefix = "optional prefix to prepend to the generated file names"
+            ack = "false" # false == fire-and-forget; true == sends a message receipt success/fail signal
 ```

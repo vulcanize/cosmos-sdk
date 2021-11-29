@@ -8,12 +8,11 @@ import (
 	"path"
 	"path/filepath"
 	"sync"
-	"time"
 
 	abci "github.com/tendermint/tendermint/abci/types"
 
+	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/store/streaming"
 	"github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -35,7 +34,7 @@ subsequent state changes are written out to this file until the next `BeginBlock
 the length-prefixed protobuf encoded `EndBlock` request is written, and the response is written at the tail.
 */
 
-var _ streaming.Service = (*FileStreamingService)(nil)
+var _ baseapp.StreamingService = (*FileStreamingService)(nil)
 
 // FileStreamingService is a concrete implementation of streaming.Service that writes state changes out to files
 type FileStreamingService struct {
@@ -50,10 +49,9 @@ type FileStreamingService struct {
 	currentTxIndex     int64                                    // the index of the current tx
 	quitChan           chan struct{}                            // channel used for synchronize closure
 
-	ack          bool          // true == fire-and-forget; false == sends success/failure signal
-	ackStatus    bool          // success/failure status, to be sent to ackChan
-	ackWaitLimit time.Duration // how long this service waits before sending a failure signal
-	ackChan      chan bool     // the channel used to send the success/failure signal
+	ack       bool      // true == fire-and-forget; false == sends success/failure signal
+	ackStatus bool      // success/failure status, to be sent to ackChan
+	ackChan   chan bool // the channel used to send the success/failure signal
 }
 
 // IntermediateWriter is used so that we do not need to update the underlying io.Writer inside the StoreKVPairWriteListener
@@ -77,7 +75,7 @@ func (iw *IntermediateWriter) Write(b []byte) (int, error) {
 
 // NewFileStreamingService creates a new FileStreamingService for the provided writeDir, (optional) filePrefix, and storeKeys
 func NewFileStreamingService(writeDir, filePrefix string, storeKeys []types.StoreKey, c codec.BinaryCodec,
-	ack bool, ackWaitLimit time.Duration) (*FileStreamingService, error) {
+	ack bool) (*FileStreamingService, error) {
 	listenChan := make(chan []byte)
 	iw := NewIntermediateWriter(listenChan)
 	listener := types.NewStoreKVPairWriteListener(iw, c)
@@ -100,7 +98,6 @@ func NewFileStreamingService(writeDir, filePrefix string, storeKeys []types.Stor
 		stateCache:     make([][]byte, 0),
 		stateCacheLock: new(sync.Mutex),
 		ack:            ack,
-		ackWaitLimit:   ackWaitLimit,
 		ackChan:        make(chan bool),
 	}, nil
 }
@@ -333,10 +330,22 @@ func (fss *FileStreamingService) ListenSuccess() <-chan bool {
 		}()
 	} else {
 		go func() {
+			// the FileStreamingService operating synchronously, but this will signify whether an error occurred
+			// during it's processing cycle
 			fss.ackChan <- fss.ackStatus
 		}()
 	}
 	return fss.ackChan
+}
+
+// SetAckMode is used to set the ack mode for testing purposes
+func (fss *FileStreamingService) SetAckMode(on bool) {
+	fss.ack = on
+}
+
+// SetAckStatus is used to set the ack status for testing purposes
+func (fss *FileStreamingService) SetAckStatus(status bool) {
+	fss.ackStatus = status
 }
 
 // isDirWriteable checks if dir is writable by writing and removing a file

@@ -37,9 +37,6 @@ const (
 
 	// ACK_MODE configures whether to operate in fire-and-forget or success/failure acknowledgement mode
 	ACK_MODE = "ack"
-
-	// ACK_WAIT_LIMIT is the ack wait duration limit for this specific service
-	ACK_WAIT_LIMIT = "ack_wait_limit"
 )
 
 const minWaitDuration = time.Millisecond * 10
@@ -95,15 +92,8 @@ func (ssp *streamingServicePlugin) Register(bApp *baseapp.BaseApp, marshaller co
 		}
 	}
 	ack := cast.ToBool(ssp.opts.Get(fmt.Sprintf("%s.%s", tomlKeyPrefix, ACK_MODE)))
-	var ackWaitLimit time.Duration
-	if ack {
-		ackWaitLimit = time.Millisecond * cast.ToDuration(ssp.opts.Get(fmt.Sprintf("%s.%s", tomlKeyPrefix, ACK_WAIT_LIMIT)))
-		if ackWaitLimit < minWaitDuration {
-			ackWaitLimit = minWaitDuration
-		}
-	}
 	var err error
-	ssp.fss, err = service.NewFileStreamingService(fileDir, filePrefix, exposeStoreKeys, marshaller, ack, ackWaitLimit)
+	ssp.fss, err = service.NewFileStreamingService(fileDir, filePrefix, exposeStoreKeys, marshaller, ack)
 	if err != nil {
 		return err
 	}

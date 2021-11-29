@@ -338,18 +338,8 @@ off the channel despite the success status of the service.
 
 ```go
 func (app *BaseApp) Commit() (res abci.ResponseCommit) {
-	
+
 	...
-
-	var halt bool
-
-	switch {
-	case app.haltHeight > 0 && uint64(header.Height) >= app.haltHeight:
-		halt = true
-
-	case app.haltTime > 0 && header.Time.Unix() >= int64(app.haltTime):
-		halt = true
-	}
 
 	// each listener has an internal wait threshold after which it sends `false` to the ListenSuccess() channel
 	// but the BaseApp also imposes a global wait limit
@@ -358,21 +348,11 @@ func (app *BaseApp) Commit() (res abci.ResponseCommit) {
 		select {
 		case success := <- lis.ListenSuccess():
 			if success == false {
-				halt = true
-				break
+				app.halt()
 			}
 		case <- maxWait.C:
-			halt = true
-			break
+			app.halt()
 		}
-	}
-
-	if halt {
-		// Halt the binary and allow Tendermint to receive the ResponseCommit
-		// response with the commit ID hash. This will allow the node to successfully
-		// restart and process blocks assuming the halt configuration has been
-		// reset or moved to a more distant value.
-		app.halt()
 	}
 
 	...
@@ -421,7 +401,7 @@ type StateStreamingPlugin interface {
 	Register(bApp *baseapp.BaseApp, marshaller codec.BinaryCodec, keys map[string]*types.KVStoreKey) error
 
 	// Start starts the background streaming process of the plugin streaming service
-	Start(wg *sync.WaitGroup)
+	Start(wg *sync.WaitGroup) error
 
 	// Plugin is the base Plugin interface
 	Plugin
@@ -508,7 +488,8 @@ It is generally expected, but not required, that a streaming service plugin can 
 (e.g. `plugins.streaming.file.keys`) for the stores it listens to and a flag (e.g. `plugins.streaming.file.ack`)
 that signifies whether the service operates in a fire-and-forget capacity or the BaseApp should require positive
 acknowledgement of message receipt by the service. In the case of "ack" mode, the service may also need to be
-configured with an acknowledgement wait limit specific to that individual service (e.g. `plugins.streaming.file.ack_wait_limit`).
+configured with an acknowledgement wait limit specific to that individual service (e.g. `plugins.streaming.kafka.ack_wait_limit`).
+The file `StreamingService` does not have an individual `ack_wait_limit` since it operates synchronously with the App.
 
 e.g.
 
@@ -526,7 +507,6 @@ e.g.
             write_dir = "path to the write directory"
             prefix = "optional prefix to prepend to the generated file names"
             ack = "false" # false == fire-and-forget; true == sends a message receipt success/fail signal
-            ack_wait_limit = 250 # millisecond delay before this service returns a message receipt failure signal to BaseApp
         [plugins.streaming.kafka]
             ...
     [plugins.modules]
