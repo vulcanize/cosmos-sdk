@@ -422,6 +422,8 @@ func (m Manager) RunMigrations(ctx sdk.Context, cfg Configurator, fromVM Version
 	if !ok {
 		return nil, sdkerrors.Wrapf(sdkerrors.ErrInvalidType, "expected %T, got %T", configurator{}, cfg)
 	}
+	ctx.Logger().Info("Start running migrations")
+
 	modules := m.OrderMigrations
 	if modules == nil {
 		modules = DefaultMigrationsOrder(m.ModuleNames())
@@ -442,12 +444,14 @@ func (m Manager) RunMigrations(ctx sdk.Context, cfg Configurator, fromVM Version
 		// 2. An existing chain is upgrading from version < 0.43 to v0.43+ for the first time.
 		// In this case, all modules have yet to be added to x/upgrade's VersionMap store.
 		if exists {
+			ctx.Logger().Info(fmt.Sprintf("Running migration for module: %s, fromVersion %d, toVersion %d",
+				moduleName, fromVersion, toVersion))
 			err := c.runModuleMigrations(ctx, moduleName, fromVersion, toVersion)
 			if err != nil {
 				return nil, err
 			}
 		} else {
-			ctx.Logger().Info(fmt.Sprintf("adding a new module: %s", moduleName))
+			ctx.Logger().Info(fmt.Sprintf("Adding a new module: %s", moduleName))
 			moduleValUpdates := module.InitGenesis(ctx, c.cdc, module.DefaultGenesis(c.cdc))
 			// The module manager assumes only one module will update the
 			// validator set, and it can't be a new module.
