@@ -103,3 +103,23 @@ func (h MultiStakingHooks) BeforeValidatorSlashed(ctx sdk.Context, valAddr sdk.V
 	}
 	return nil
 }
+
+func (h MultiStakingHooks) BeforeSlashingUnbondingDelegation(ctx sdk.Context, unbondingDelegation UnbondingDelegation,
+	infractionHeight int64, slashFactor sdk.Dec) error {
+	for i := range h {
+		if err := h[i].BeforeSlashingUnbondingDelegation(ctx, unbondingDelegation, infractionHeight, slashFactor); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (h MultiStakingHooks) BeforeSlashingRedelegation(ctx sdk.Context, srcValidator Validator, redelegation Redelegation,
+	infractionHeight int64, slashFactor sdk.Dec) error {
+	for i := range h {
+		if err := h[i].BeforeSlashingRedelegation(ctx, srcValidator, redelegation, infractionHeight, slashFactor); err != nil {
+			return err
+		}
+	}
+	return nil
+}

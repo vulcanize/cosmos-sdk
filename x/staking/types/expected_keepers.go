@@ -101,4 +101,8 @@ type StakingHooks interface {
 	BeforeDelegationRemoved(ctx sdk.Context, delAddr sdk.AccAddress, valAddr sdk.ValAddress) error        // Must be called when a delegation is removed
 	AfterDelegationModified(ctx sdk.Context, delAddr sdk.AccAddress, valAddr sdk.ValAddress) error
 	BeforeValidatorSlashed(ctx sdk.Context, valAddr sdk.ValAddress, fraction sdk.Dec) error
+	BeforeSlashingUnbondingDelegation(ctx sdk.Context, unbondingDelegation UnbondingDelegation,
+		infractionHeight int64, slashFactor sdk.Dec) error
+	BeforeSlashingRedelegation(ctx sdk.Context, srcValidator Validator, redelegation Redelegation,
+		infractionHeight int64, slashFactor sdk.Dec) error
 }
