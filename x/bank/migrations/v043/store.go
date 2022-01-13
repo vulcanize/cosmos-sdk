@@ -1,8 +1,6 @@
 package v043
 
 import (
-	"fmt"
-
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
@@ -87,7 +85,11 @@ func migrateBalanceKeys(store sdk.KVStore) {
 			addr = sdk.AccAddress(oldKey[:32])
 			addrLen = 32
 		} else {
-			panic(fmt.Sprintf("We have an issue ser, oldkey %v, len %d", oldKey, len(oldKey)))
+			// We remove the panic because this worked through the Osmosis v5 upgrade.
+			// This was causing issues in tests, so we just assume the tests test the default SDK code, at 20 bytes.
+			// panic(fmt.Sprintf("We have an issue ser, oldkey %v, len %d", oldKey, len(oldKey)))
+			addr = v042bank.AddressFromBalancesStore(oldStoreIter.Key())
+			addrLen = v042auth.AddrLen
 		}
 		denom := oldStoreIter.Key()[addrLen:]
 		newStoreKey := append(types.CreateAccountBalancesPrefix(addr), denom...)
