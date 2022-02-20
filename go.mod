@@ -164,4 +164,6 @@ replace (
 
 replace github.com/tendermint/tm-db => github.com/osmosis-labs/tm-db v0.6.5-0.20210911033928-ba9154613417
 
+replace github.com/cosmos/iavl => github.com/osmosis-labs/iavl v0.17.3-osmo-v3
+
 retract v0.43.0
