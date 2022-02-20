@@ -94,30 +94,9 @@ func (h MultiStakingHooks) AfterDelegationModified(ctx sdk.Context, delAddr sdk.
 	}
 	return nil
 }
-
-func (h MultiStakingHooks) BeforeValidatorSlashed(ctx sdk.Context, valAddr sdk.ValAddress, fraction sdk.Dec) error {
+func (h MultiStakingHooks) BeforeValidatorSlashed(ctx sdk.Context, valAddr sdk.ValAddress, infractionHeight int64, slashFactor sdk.Dec, effectiveSlashFactor sdk.Dec) error {
 	for i := range h {
-		if err := h[i].BeforeValidatorSlashed(ctx, valAddr, fraction); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (h MultiStakingHooks) BeforeSlashingUnbondingDelegation(ctx sdk.Context, unbondingDelegation UnbondingDelegation,
-	infractionHeight int64, slashFactor sdk.Dec) error {
-	for i := range h {
-		if err := h[i].BeforeSlashingUnbondingDelegation(ctx, unbondingDelegation, infractionHeight, slashFactor); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (h MultiStakingHooks) BeforeSlashingRedelegation(ctx sdk.Context, srcValidator Validator, redelegation Redelegation,
-	infractionHeight int64, slashFactor sdk.Dec) error {
-	for i := range h {
-		if err := h[i].BeforeSlashingRedelegation(ctx, srcValidator, redelegation, infractionHeight, slashFactor); err != nil {
+		if err := h[i].BeforeValidatorSlashed(ctx, valAddr, infractionHeight, slashFactor, effectiveSlashFactor); err != nil {
 			return err
 		}
 	}

@@ -81,31 +81,9 @@ func (k Keeper) AfterDelegationModified(ctx sdk.Context, delAddr sdk.AccAddress,
 }
 
 // BeforeValidatorSlashed - call hook if registered
-func (k Keeper) BeforeValidatorSlashed(ctx sdk.Context, valAddr sdk.ValAddress, fraction sdk.Dec) error {
+func (k Keeper) BeforeValidatorSlashed(ctx sdk.Context, valAddr sdk.ValAddress, slashHeight int64, slashFactor sdk.Dec, effectiveSlashFactor sdk.Dec) error {
 	if k.hooks != nil {
-		return k.hooks.BeforeValidatorSlashed(ctx, valAddr, fraction)
-	}
-	return nil
-}
-
-// BeforeSlashingUnbondingDelegation - call hook if registered
-func (k Keeper) BeforeSlashingUnbondingDelegation(ctx sdk.Context, unbondingDelegation types.UnbondingDelegation,
-	infractionHeight int64, slashFactor sdk.Dec) error {
-	if k.hooks != nil {
-		if err := k.hooks.BeforeSlashingUnbondingDelegation(ctx, unbondingDelegation, infractionHeight, slashFactor); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// BeforeSlashingRedelegation - call hook if registered
-func (k Keeper) BeforeSlashingRedelegation(ctx sdk.Context, srcValidator types.Validator, redelegation types.Redelegation,
-	infractionHeight int64, slashFactor sdk.Dec) error {
-	if k.hooks != nil {
-		if err := k.hooks.BeforeSlashingRedelegation(ctx, srcValidator, redelegation, infractionHeight, slashFactor); err != nil {
-			return err
-		}
+		return k.hooks.BeforeValidatorSlashed(ctx, valAddr, slashHeight, slashFactor, effectiveSlashFactor)
 	}
 	return nil
 }
