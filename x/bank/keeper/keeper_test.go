@@ -485,7 +485,7 @@ func (suite *IntegrationTestSuite) TestSendManyCoins() {
 	addr2 := sdk.AccAddress([]byte("addr2_______________"))
 	acc2 := app.AccountKeeper.NewAccountWithAddress(ctx, addr2)
 	app.AccountKeeper.SetAccount(ctx, acc2)
-	suite.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, addr2, balances))
+	suite.Require().NoError(testutil.FundAccount(app.BankKeeper, ctx, addr2, balances))
 
 	addr3 := sdk.AccAddress([]byte("addr3_______________"))
 	acc3 := app.AccountKeeper.NewAccountWithAddress(ctx, addr3)
@@ -500,7 +500,7 @@ func (suite *IntegrationTestSuite) TestSendManyCoins() {
 
 	suite.Require().Error(app.BankKeeper.SendManyCoins(ctx, addr1, toAddrs, sendAmts))
 
-	suite.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, addr1, balances))
+	suite.Require().NoError(testutil.FundAccount(app.BankKeeper, ctx, addr1, balances))
 	suite.Require().Error(app.BankKeeper.SendManyCoins(ctx, addr1, toAddrs, sendAmts))
 
 	toAddrs = append(toAddrs, addr3)
