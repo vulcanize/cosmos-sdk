@@ -285,6 +285,7 @@ github.com/cosmos/cosmos-sdk/errors v1.0.0-beta.3 h1:Ep7FHNViVwwGnwLFEPewZYsyN2C
 github.com/cosmos/cosmos-sdk/errors v1.0.0-beta.3/go.mod h1:HFea93YKmoMJ/mNKtkSeJZDtyJ4inxBsUK928KONcqo=
 github.com/cosmos/go-bip39 v1.0.0 h1:pcomnQdrdH22njcAatO0yWojsUnCO3y2tNoV1cb6hHY=
 github.com/cosmos/go-bip39 v1.0.0/go.mod h1:RNJv0H/pOIVgxw6KS7QeX2a0Uo0aKUlfhZ4xuwvCdJw=
+github.com/cosmos/gorocksdb v1.2.0 h1:d0l3jJG8M4hBouIZq0mDUHZ+zjOx044J3nGRskwTb4Y=
 github.com/cosmos/gorocksdb v1.2.0/go.mod h1:aaKvKItm514hKfNJpUJXnnOWeBnk2GL4+Qw9NHizILw=
 github.com/cosmos/iavl v0.18.0 h1:02ur4vnalMR2GuWCFNkuseUcl/BCVmg9tOeHOGiZOkE=
 github.com/cosmos/iavl v0.18.0/go.mod h1:L0VZHfq0tqMNJvXlslGExaaiZM7eSm+90Vh9QUbp6j4=
@@ -1246,6 +1247,8 @@ github.com/tendermint/tendermint v0.35.2 h1:AhPjef5hptLQP5i8vs+8zMCu9mczX5fvBd2F
 github.com/tendermint/tendermint v0.35.2/go.mod h1:0sVA1nOm5KKaxHar3aIzmMGKH9F/nBMn7T5ruQGZuHg=
 github.com/tendermint/tm-db v0.6.6 h1:EzhaOfR0bdKyATqcd5PNeyeq8r+V4bRPHBfyFdD9kGM=
 github.com/tendermint/tm-db v0.6.6/go.mod h1:wP8d49A85B7/erz/r4YbKssKw6ylsO/hKtFk7E1aWZI=
+github.com/tendermint/tm-db v0.6.7 h1:fE00Cbl0jayAoqlExN6oyQJ7fR/ZtoVOmvPJ//+shu8=
+github.com/tendermint/tm-db v0.6.7/go.mod h1:byQDzFkZV1syXr/ReXS808NxA2xvyuuVgXOJ/088L6I=
 github.com/tenntenn/modver v1.0.1/go.mod h1:bePIyQPb7UeioSRkw3Q0XeMhYZSMx9B8ePqg6SAMGH0=
 github.com/tenntenn/text/transform v0.0.0-20200319021203-7eef512accb3/go.mod h1:ON8b8w4BN/kE1EOhwT0o+d62W65a6aPw1nouo9LMgyY=
 github.com/tetafro/godot v1.4.11/go.mod h1:LR3CJpxDVGlYOWn3ZZg1PgNZdTUvzsZWu8xaEohUpn8=
