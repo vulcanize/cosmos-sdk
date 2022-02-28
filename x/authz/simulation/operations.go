@@ -250,7 +250,7 @@ func SimulateMsgExec(ak authz.AccountKeeper, bk authz.BankKeeper, k keeper.Keepe
 
 		msg := []sdk.Msg{banktype.NewMsgSend(granterAddr, granteeAddr, coins)}
 		authorization, err := targetGrant.GetAuthorization()
-		if err != nil{
+		if err != nil {
 			return simtypes.NoOpMsg(authz.ModuleName, TypeMsgExec, err.Error()), nil, err
 		}
 
