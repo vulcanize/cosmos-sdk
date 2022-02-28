@@ -75,7 +75,6 @@ type StoreParams struct {
 
 // StoreSchema defineds a mapping of substore keys to store types
 type StoreSchema map[string]types.StoreType
-type StoreKeySchema map[types.StoreKey]types.StoreType
 
 // storeKeys maps key names to StoreKey instances
 type storeKeys map[string]types.StoreKey
@@ -93,7 +92,7 @@ type Store struct {
 	StateCommitmentDB  dbm.DBConnection
 	stateCommitmentTxn dbm.DBReadWriter
 
-	schema StoreKeySchema
+	schema StoreSchema
 
 	mem  *mem.Store
 	tran *transient.Store
@@ -347,15 +346,7 @@ func NewStore(db dbm.DBConnection, opts StoreParams) (ret *Store, err error) {
 			writeSchema(opts.StoreSchema)
 		}
 	}
-	ret.schema = StoreKeySchema{}
-	for key, typ := range opts.StoreSchema {
-		var skey types.StoreKey
-		skey, err = opts.storeKey(key)
-		if err != nil {
-			return
-		}
-		ret.schema[skey] = typ
-	}
+	ret.schema = opts.StoreSchema
 	return
 }
 
@@ -436,7 +427,7 @@ func substorePrefix(key string) []byte {
 func (rs *Store) GetKVStore(skey types.StoreKey) types.KVStore {
 	key := skey.Name()
 	var parent types.KVStore
-	typ, has := rs.schema[skey]
+	typ, has := rs.schema[key]
 	if !has {
 		panic(ErrStoreNotFound(key))
 	}
@@ -552,14 +543,14 @@ func (s *Store) Commit() types.CommitID {
 func (s *Store) getMerkleRoots() (ret map[string][]byte, err error) {
 	ret = map[string][]byte{}
 	for key := range s.schema {
-		sub, has := s.substoreCache[key.Name()]
+		sub, has := s.substoreCache[key]
 		if !has {
-			sub, err = s.getSubstore(key.Name())
+			sub, err = s.getSubstore(key)
 			if err != nil {
 				return
 			}
 		}
-		ret[key.Name()] = sub.stateCommitmentStore.Root()
+		ret[key] = sub.stateCommitmentStore.Root()
 	}
 	return
 }

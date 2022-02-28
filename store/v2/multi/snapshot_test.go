@@ -6,12 +6,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/cosmos/cosmos-sdk/snapshots"
 	"io"
 	"math/rand"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/cosmos/cosmos-sdk/snapshots"
 
 	dbm "github.com/cosmos/cosmos-sdk/db"
 	"github.com/cosmos/cosmos-sdk/db/memdb"
@@ -21,13 +22,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func multiStoreConfig(t *testing.T, stores int) StoreConfig {
-	opts := DefaultStoreConfig()
+func multiStoreConfig(t *testing.T, stores int) StoreParams {
+	opts := DefaultStoreParams()
 	opts.Pruning = types.PruneNothing
 
 	for i := 0; i < stores; i++ {
 		sKey := types.NewKVStoreKey(fmt.Sprintf("store%d", i))
-		require.NoError(t, opts.RegisterSubstore(sKey.Name(), types.StoreTypePersistent))
+		require.NoError(t, opts.RegisterSubstore(sKey, types.StoreTypePersistent))
 	}
 
 	return opts
