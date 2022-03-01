@@ -105,11 +105,11 @@ type storeV2 struct {
 	storev2types.KVStore
 }
 
-func simpleStoreConfig() (storev2.StoreConfig, error) {
-	opts := storev2.DefaultStoreConfig()
-	err := opts.RegisterSubstore(skey_1.Name(), types.StoreTypePersistent)
+func simpleStoreParams() (storev2.StoreParams, error) {
+	opts := storev2.DefaultStoreParams()
+	err := opts.RegisterSubstore(skey_1, types.StoreTypePersistent)
 	if err != nil {
-		return storev2.StoreConfig{}, err
+		return storev2.StoreParams{}, err
 	}
 	return opts, nil
 }
@@ -201,7 +201,7 @@ func runDeterministicOperations(b *testing.B, s store, values [][]byte, c counts
 	}
 }
 
-func RunRvert(b *testing.B, s store, db interface{}, uncommittedValues [][]byte) {
+func RunRvert(b *testing.B, s store, db interface{}, uncommittedValues [][]byte) store {
 	for i := 0; i < b.N; i++ {
 		// Key, value pairs changed but not committed
 		for i, v := range uncommittedValues {
@@ -215,12 +215,14 @@ func RunRvert(b *testing.B, s store, db interface{}, uncommittedValues [][]byte)
 			require.NoError(b, err)
 		case *storeV2:
 			require.NoError(b, t.Close())
-			_, err := newStore(2, db, nil, 0) // This shall revert to the last commitID
+			var err error
+			s, err = newStore(2, db, nil, 0) // This shall revert to the last commitID
 			require.NoError(b, err)
 		default:
 			panic("not supported store type")
 		}
 	}
+	return s
 }
 
 func newDB(version int, dbName string, dbType tmdb.BackendType, dir string) (db interface{}, err error) {
@@ -281,15 +283,15 @@ func newStore(version int, dbBackend interface{}, cID *types.CommitID, cacheSize
 		if !ok {
 			return nil, fmt.Errorf("unsupported db type")
 		}
-		simpleStoreConfig, err := simpleStoreConfig()
+		simpleStoreParams, err := simpleStoreParams()
 		if err != nil {
 			return nil, err
 		}
-		root, err := storev2.NewStore(db, simpleStoreConfig)
+		root, err := storev2.NewStore(db, simpleStoreParams)
 		if err != nil {
 			return nil, err
 		}
-		store := root.GetKVStore(storev2types.NewKVStoreKey("store1"))
+		store := root.GetKVStore(skey_1)
 		s := &storeV2{root, store}
 		return s, nil
 	}
@@ -347,7 +349,7 @@ func runSuite(b *testing.B, version int, dbBackendTypes []tmdb.BackendType, dir 
 	for _, dbType := range dbBackendTypes {
 		s, db := prepareStore(b, version, dbType, committedValues)
 		b.Run(fmt.Sprintf("v%d-%s-revert", version, dbType), func(sub *testing.B) {
-			RunRvert(sub, s, db, uncommittedValues)
+			s = RunRvert(sub, s, db, uncommittedValues)
 		})
 	}
 }
