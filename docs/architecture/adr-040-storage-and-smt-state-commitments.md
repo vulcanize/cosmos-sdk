@@ -42,11 +42,15 @@ Separation of storage and commitment (by the SMT) will allow the optimization of
 
 SMT is a merkle tree structure: we don't store keys directly. For every `(key, value)` pair, `hash(key)` is used as leaf path (we hash a key to uniformly distribute leaves in the tree) and `hash(value)` as the leaf contents. The tree structure is specified in more depth [below](#smt-for-state-commitment).
 
-For data access we propose 2 additional KV buckets (implemented as namespaces for the key-value pairs, sometimes called [column family](https://github.com/facebook/rocksdb/wiki/Terminology)):
+The SMT also stores a mapping of the `hash(key) => value`, enabling
 
-1. B1: `key → value`: the principal object storage, used by a state machine, behind the Cosmos SDK `KVStore` interface: provides direct access by key and allows prefix iteration (KV DB backend must support it).
-2. B2: `hash(key) → key`: a reverse index to get a key from an SMT path. Internally the SMT will store `(key, value)` as `prefix || hash(key) || hash(value)`. So, we can get an object value by composing `hash(key) → B2 → B1`.
-3. We could use more buckets to optimize the app usage if needed.
+1. The retrieval of a value by its key without tree iteration
+2. The retrieval of a value using the contents of the leaf node (`leafPrefix || hash(key) || hash(value)`) that references it
+
+For data access (`SS`) we propose additional KV buckets (implemented as namespaces for the key-value pairs, sometimes called [column family](https://github.com/facebook/rocksdb/wiki/Terminology)):
+
+1. `key → value`: the principal object storage, used by a state machine, behind the Cosmos SDK `KVStore` interface: provides direct access by key and allows prefix iteration (KV DB backend must support it).
+2. We could use more buckets to optimize the app usage if needed.
 
 We propose to use a KV database for both `SS` and `SC`. The store interface will allow to use the same physical DB backend for both `SS` and `SC` as well two separate DBs. The latter option allows for the separation of `SS` and `SC` into different hardware units, providing support for more complex setup scenarios and improving overall performance: one can use different backends (eg RocksDB and Badger) as well as independently tuning the underlying DB configuration.
 
