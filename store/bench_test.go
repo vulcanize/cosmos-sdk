@@ -47,7 +47,7 @@ type counts struct {
 	delete int
 }
 
-func generateSampledPercentages() []percentages {
+func generateGradedPercentages() []percentages {
 	var sampledPercentages []percentages
 	sampleX := percentages{has: 2, get: 55, set: 40, delete: 3}
 	sampledPercentages = append(sampledPercentages, sampleX)
@@ -65,6 +65,15 @@ func generateSampledPercentages() []percentages {
 		}
 	}
 	return sampledPercentages
+}
+
+func generateExtremePercentages() []percentages {
+	return []percentages{
+		{100, 0, 0, 0},
+		{0, 100, 0, 0},
+		{0, 0, 100, 0},
+		{0, 0, 0, 100},
+	}
 }
 
 type benchmark struct {
@@ -127,6 +136,7 @@ func sampleOperation(p percentages) string {
 }
 
 func runRandomizedOperations(b *testing.B, s store, totalOpsCount int, p percentages) {
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for j := 0; j < totalOpsCount; j++ {
 			b.StopTimer()
@@ -316,13 +326,19 @@ func prepareStore(b *testing.B, version int, dbType tmdb.BackendType, committedV
 
 func runSuite(b *testing.B, version int, dbBackendTypes []tmdb.BackendType, dir string) {
 	// run randomized operations subbenchmarks for various scenarios
-	sampledPercentages := generateSampledPercentages()
+	sampledPercentages := generateGradedPercentages()
 	benchmarks := generateBenchmarks(dbBackendTypes, sampledPercentages, nil)
+
+	values := prepareValues()
 	for _, bm := range benchmarks {
 		db, err := newDB(version, bm.name, bm.dbType, dir)
 		require.NoError(b, err)
 		s, err := newStore(version, db, nil, cacheSize)
 		require.NoError(b, err)
+		// add existing data
+		for i, v := range values {
+			s.Set(createKey(i), v)
+		}
 		b.Run(bm.name, func(sub *testing.B) {
 			runRandomizedOperations(sub, s, 1000, bm.percentages)
 		})
@@ -332,7 +348,6 @@ func runSuite(b *testing.B, version int, dbBackendTypes []tmdb.BackendType, dir 
 	c := counts{has: 200, get: 5500, set: 4000, delete: 300}
 	sampledCounts := []counts{c}
 	benchmarks = generateBenchmarks(dbBackendTypes, nil, sampledCounts)
-	values := prepareValues()
 	for _, bm := range benchmarks {
 		db, err := newDB(version, bm.name, bm.dbType, dir)
 		require.NoError(b, err)
@@ -355,12 +370,11 @@ func runSuite(b *testing.B, version int, dbBackendTypes []tmdb.BackendType, dir 
 }
 
 func BenchmarkLoadStoreV1(b *testing.B) {
-	dbBackendTypes := []tmdb.BackendType{tmdb.GoLevelDBBackend, tmdb.RocksDBBackend, tmdb.BadgerDBBackend}
-	// dbBackendTypes := []tmdb.BackendType{tmdb.RocksDBBackend, tmdb.BadgerDBBackend}
-	runSuite(b, 1, dbBackendTypes, "testdbs/v1")
+	dbBackendTypes := []tmdb.BackendType{tmdb.BadgerDBBackend}
+	runSuite(b, 1, dbBackendTypes, b.TempDir())
 }
 
 func BenchmarkLoadStoreV2(b *testing.B) {
-	dbBackendTypes := []tmdb.BackendType{tmdb.RocksDBBackend, tmdb.BadgerDBBackend}
-	runSuite(b, 2, dbBackendTypes, "testdbs/v2")
+	dbBackendTypes := []tmdb.BackendType{tmdb.BadgerDBBackend}
+	runSuite(b, 2, dbBackendTypes, b.TempDir())
 }
