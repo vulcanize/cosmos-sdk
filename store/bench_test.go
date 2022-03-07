@@ -14,11 +14,15 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/db"
 	"github.com/cosmos/cosmos-sdk/db/badgerdb"
+	"github.com/cosmos/cosmos-sdk/db/memdb"
 	"github.com/cosmos/cosmos-sdk/db/rocksdb"
+	dbutil "github.com/cosmos/cosmos-sdk/internal/db"
+	"github.com/cosmos/cosmos-sdk/store/iavl"
 	storev1 "github.com/cosmos/cosmos-sdk/store/iavl"
 	"github.com/cosmos/cosmos-sdk/store/types"
 	storev2types "github.com/cosmos/cosmos-sdk/store/v2"
 	storev2 "github.com/cosmos/cosmos-sdk/store/v2/multi"
+	"github.com/cosmos/cosmos-sdk/store/v2/smt"
 	tmdb "github.com/tendermint/tm-db"
 )
 
@@ -26,6 +30,19 @@ var (
 	cacheSize = 100
 	skey_1    = types.NewKVStoreKey("store1")
 )
+
+func BenchmarkMultiStoreV1(b *testing.B) {
+	dbBackendTypes := []tmdb.BackendType{tmdb.BadgerDBBackend}
+	runSuite(b, 1, dbBackendTypes, b.TempDir())
+}
+
+func BenchmarkMultiStoreV2(b *testing.B) {
+	dbBackendTypes := []tmdb.BackendType{tmdb.BadgerDBBackend}
+	runSuite(b, 2, dbBackendTypes, b.TempDir())
+}
+
+func BenchmarkTreeStoreV1(b *testing.B) { runTreeSuite(b, newIavlStore) }
+func BenchmarkTreeStoreV2(b *testing.B) { runTreeSuite(b, newSmtStore) }
 
 func randBytes(numBytes int) []byte {
 	b := make([]byte, numBytes)
@@ -88,12 +105,12 @@ func generateBenchmarks(dbBackendTypes []tmdb.BackendType, sampledPercentages []
 	for _, dbType := range dbBackendTypes {
 		if len(sampledPercentages) > 0 {
 			for _, p := range sampledPercentages {
-				name := fmt.Sprintf("r-%s-%d-%d-%d-%d", dbType, p.has, p.get, p.set, p.delete)
+				name := fmt.Sprintf("%s-r-%d-%d-%d-%d", dbType, p.has, p.get, p.set, p.delete)
 				benchmarks = append(benchmarks, benchmark{name: name, percentages: p, dbType: dbType, counts: counts{}})
 			}
 		} else if len(sampledCounts) > 0 {
 			for _, c := range sampledCounts {
-				name := fmt.Sprintf("d-%s-%d-%d-%d-%d", dbType, c.has, c.get, c.set, c.delete)
+				name := fmt.Sprintf("%s-d-%d-%d-%d-%d", dbType, c.has, c.get, c.set, c.delete)
 				benchmarks = append(benchmarks, benchmark{name: name, percentages: percentages{}, dbType: dbType, counts: c})
 			}
 		}
@@ -369,12 +386,70 @@ func runSuite(b *testing.B, version int, dbBackendTypes []tmdb.BackendType, dir 
 	}
 }
 
-func BenchmarkLoadStoreV1(b *testing.B) {
-	dbBackendTypes := []tmdb.BackendType{tmdb.BadgerDBBackend}
-	runSuite(b, 1, dbBackendTypes, b.TempDir())
+func (p percentages) String() string {
+	return fmt.Sprintf("r-%d-%d-%d-%d", p.has, p.get, p.set, p.delete)
 }
 
-func BenchmarkLoadStoreV2(b *testing.B) {
-	dbBackendTypes := []tmdb.BackendType{tmdb.BadgerDBBackend}
-	runSuite(b, 2, dbBackendTypes, b.TempDir())
+func (ct counts) String() string {
+	return fmt.Sprintf("d-%d-%d-%d-%d", ct.has, ct.get, ct.set, ct.delete)
+}
+
+// stub out commit on both stores, to test only tree CRUD
+type smtStore struct {
+	*smt.Store
+	db db.DBConnection
+	rw db.DBReadWriter
+}
+
+func (s *smtStore) Commit() types.CommitID {
+	root := s.Root()
+	if err := s.rw.Commit(); err != nil {
+		panic(err)
+	}
+	s.rw = s.db.ReadWriter()
+	s.Store = smt.LoadStore(s.rw, root)
+	return types.CommitID{Hash: root}
+}
+
+type treeStoreCtor = func(db.DBConnection) store
+
+func newSmtStore(dbc db.DBConnection) store {
+	rw := dbc.ReadWriter()
+	return &smtStore{smt.NewStore(rw), dbc, rw}
+}
+
+func newIavlStore(dbc db.DBConnection) store {
+	s, err := iavl.LoadStore(dbutil.ConnectionAsTmdb(dbc), types.CommitID{}, false, cacheSize)
+	if err != nil {
+		panic(err)
+	}
+	return s
+}
+
+func runTreeSuite(b *testing.B, ctor treeStoreCtor) {
+	// run randomized operations subbenchmarks for various scenarios
+	percentages := generateGradedPercentages()
+
+	values := prepareValues()
+	for _, pct := range percentages {
+		db := memdb.NewDB()
+		s := ctor(db)
+		for i, v := range values { // add existing data
+			s.Set(createKey(i), v)
+		}
+		b.Run("memdb-"+pct.String(), func(sub *testing.B) {
+			runRandomizedOperations(sub, s, 1000, pct)
+		})
+	}
+
+	// run deterministic operations subbenchmarks for various scenarios
+	c := counts{has: 200, get: 5500, set: 4000, delete: 300}
+	sampledCounts := []counts{c}
+	for _, ct := range sampledCounts {
+		db := memdb.NewDB()
+		s := ctor(db)
+		b.Run("memdb-"+ct.String(), func(sub *testing.B) {
+			runDeterministicOperations(sub, s, values, ct)
+		})
+	}
 }
