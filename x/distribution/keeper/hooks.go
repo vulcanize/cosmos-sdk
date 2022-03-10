@@ -124,3 +124,7 @@ func (h Hooks) AfterValidatorBeginUnbonding(_ sdk.Context, _ sdk.ConsAddress, _ 
 func (h Hooks) BeforeDelegationRemoved(_ sdk.Context, _ sdk.AccAddress, _ sdk.ValAddress) error {
 	return nil
 }
+
+func (h Hooks) AfterValidatorSlashed(ctx sdk.Context, valAddr sdk.ValAddress, slashHeight int64, slashFactor sdk.Dec, effectiveSlashFactor sdk.Dec) error {
+	return nil
+}

@@ -102,3 +102,11 @@ func (h MultiStakingHooks) BeforeValidatorSlashed(ctx sdk.Context, valAddr sdk.V
 	}
 	return nil
 }
+func (h MultiStakingHooks) AfterValidatorSlashed(ctx sdk.Context, valAddr sdk.ValAddress, infractionHeight int64, slashFactor sdk.Dec, effectiveSlashFactor sdk.Dec) error {
+	for i := range h {
+		if err := h[i].AfterValidatorSlashed(ctx, valAddr, infractionHeight, slashFactor, effectiveSlashFactor); err != nil {
+			return err
+		}
+	}
+	return nil
+}
