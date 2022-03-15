@@ -14,35 +14,29 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/db"
 	"github.com/cosmos/cosmos-sdk/db/badgerdb"
-	"github.com/cosmos/cosmos-sdk/db/memdb"
 	"github.com/cosmos/cosmos-sdk/db/rocksdb"
-	dbutil "github.com/cosmos/cosmos-sdk/internal/db"
-	"github.com/cosmos/cosmos-sdk/store/iavl"
 	storev1 "github.com/cosmos/cosmos-sdk/store/iavl"
 	"github.com/cosmos/cosmos-sdk/store/types"
-	storev2types "github.com/cosmos/cosmos-sdk/store/v2"
 	storev2 "github.com/cosmos/cosmos-sdk/store/v2/multi"
-	"github.com/cosmos/cosmos-sdk/store/v2/smt"
 	tmdb "github.com/tendermint/tm-db"
 )
 
 var (
-	cacheSize = 100
-	skey_1    = types.NewKVStoreKey("store1")
+	cacheSize      = 100
+	skey_1         = types.NewKVStoreKey("store1")
+	commitInterval = 200
+	seed           = int64(42)
 )
 
-func BenchmarkMultiStoreV1(b *testing.B) {
+func BenchmarkStoreV1(b *testing.B) {
 	dbBackendTypes := []tmdb.BackendType{tmdb.BadgerDBBackend}
 	runSuite(b, 1, dbBackendTypes, b.TempDir())
 }
 
-func BenchmarkMultiStoreV2(b *testing.B) {
+func BenchmarkStoreV2(b *testing.B) {
 	dbBackendTypes := []tmdb.BackendType{tmdb.BadgerDBBackend}
 	runSuite(b, 2, dbBackendTypes, b.TempDir())
 }
-
-func BenchmarkTreeStoreV1(b *testing.B) { runTreeSuite(b, newIavlStore) }
-func BenchmarkTreeStoreV2(b *testing.B) { runTreeSuite(b, newSmtStore) }
 
 func randBytes(numBytes int) []byte {
 	b := make([]byte, numBytes)
@@ -126,11 +120,6 @@ type store interface {
 	Commit() types.CommitID
 }
 
-type storeV2 struct {
-	*storev2.Store
-	storev2types.KVStore
-}
-
 func simpleStoreParams() (storev2.StoreParams, error) {
 	opts := storev2.DefaultStoreParams()
 	err := opts.RegisterSubstore(skey_1, types.StoreTypePersistent)
@@ -170,22 +159,22 @@ func runRandomizedOperations(b *testing.B, s store, totalOpsCount int, p percent
 			case "Delete":
 				s.Delete(randBytes(12))
 			}
-			if j%200 == 0 || j == totalOpsCount-1 {
+			if j%commitInterval == 0 || j == totalOpsCount-1 {
 				s.Commit()
 			}
 		}
 	}
 }
 
-func prepareValues() [][]byte {
+func prepareValues(n int) [][]byte {
 	var data [][]byte
-	for i := 0; i < 5000; i++ {
+	for i := 0; i < n; i++ {
 		data = append(data, randBytes(50))
 	}
 	return data
 }
 
-func createKey(i int) []byte {
+func createSineKey(i int) []byte {
 	b := make([]byte, 8)
 	binary.BigEndian.PutUint64(b, uint64(math.Sin(float64(i))*100000))
 	return b
@@ -209,19 +198,19 @@ func runDeterministicOperations(b *testing.B, s store, values [][]byte, c counts
 
 		b.StartTimer()
 		for j := 0; j < c.set; j++ {
-			key := createKey(idx + j)
+			key := createSineKey(idx + j)
 			s.Set(key, values[idx+j])
 		}
 		for j := 0; j < c.has; j++ {
-			key := createKey(idx + j)
+			key := createSineKey(idx + j)
 			s.Has(key)
 		}
 		for j := 0; j < c.get; j++ {
-			key := createKey(idx + j)
+			key := createSineKey(idx + j)
 			s.Get(key)
 		}
 		for j := 0; j < c.delete; j++ {
-			key := createKey(idx + j)
+			key := createSineKey(idx + j)
 			s.Delete(key)
 		}
 		s.Commit()
@@ -232,18 +221,18 @@ func RunRvert(b *testing.B, s store, db interface{}, uncommittedValues [][]byte)
 	for i := 0; i < b.N; i++ {
 		// Key, value pairs changed but not committed
 		for i, v := range uncommittedValues {
-			s.Set(createKey(i), v)
+			s.Set(createSineKey(i), v)
 		}
 
 		b.ResetTimer()
 		switch t := s.(type) {
 		case *storev1.Store:
-			_, err := newStore(1, db, nil, cacheSize) // This shall revert to the last commitID
+			_, err := newStore(1, db) // This shall revert to the last commitID
 			require.NoError(b, err)
-		case *storeV2:
+		case *multistoreV2:
 			require.NoError(b, t.Close())
 			var err error
-			s, err = newStore(2, db, nil, 0) // This shall revert to the last commitID
+			s, err = newStore(2, db) // This shall revert to the last commitID
 			require.NoError(b, err)
 		default:
 			panic("not supported store type")
@@ -289,16 +278,13 @@ func newDB(version int, dbName string, dbType tmdb.BackendType, dir string) (db 
 	return nil, fmt.Errorf("not supported version")
 }
 
-func newStore(version int, dbBackend interface{}, cID *types.CommitID, cacheSize int) (store, error) {
+func newStore(version int, dbBackend interface{}) (store, error) {
 	if version == 1 {
 		db, ok := dbBackend.(tmdb.DB)
 		if !ok {
 			return nil, fmt.Errorf("unsupported db type")
 		}
-		if cID == nil {
-			cID = &types.CommitID{Version: 0, Hash: nil}
-		}
-		s, err := storev1.LoadStore(db, *cID, false, cacheSize)
+		s, err := storev1.LoadStore(db, types.CommitID{Version: 0, Hash: nil}, false, cacheSize)
 		if err != nil {
 			return nil, err
 		}
@@ -319,7 +305,7 @@ func newStore(version int, dbBackend interface{}, cID *types.CommitID, cacheSize
 			return nil, err
 		}
 		store := root.GetKVStore(skey_1)
-		s := &storeV2{root, store}
+		s := &multistoreV2{root, store}
 		return s, nil
 	}
 
@@ -331,10 +317,10 @@ func prepareStore(b *testing.B, version int, dbType tmdb.BackendType, committedV
 	dbName := fmt.Sprintf("reverttest-%s", dbType)
 	db, err := newDB(version, dbName, dbType, dir)
 	require.NoError(b, err)
-	s, err := newStore(version, db, nil, cacheSize)
+	s, err := newStore(version, db)
 	require.NoError(b, err)
 	for i, v := range committedValues {
-		s.Set(createKey(i), v)
+		s.Set(createSineKey(i), v)
 	}
 	_ = s.Commit()
 
@@ -346,15 +332,15 @@ func runSuite(b *testing.B, version int, dbBackendTypes []tmdb.BackendType, dir 
 	sampledPercentages := generateGradedPercentages()
 	benchmarks := generateBenchmarks(dbBackendTypes, sampledPercentages, nil)
 
-	values := prepareValues()
+	values := prepareValues(5000)
 	for _, bm := range benchmarks {
 		db, err := newDB(version, bm.name, bm.dbType, dir)
 		require.NoError(b, err)
-		s, err := newStore(version, db, nil, cacheSize)
+		s, err := newStore(version, db)
 		require.NoError(b, err)
 		// add existing data
 		for i, v := range values {
-			s.Set(createKey(i), v)
+			s.Set(createSineKey(i), v)
 		}
 		b.Run(bm.name, func(sub *testing.B) {
 			runRandomizedOperations(sub, s, 1000, bm.percentages)
@@ -368,7 +354,7 @@ func runSuite(b *testing.B, version int, dbBackendTypes []tmdb.BackendType, dir 
 	for _, bm := range benchmarks {
 		db, err := newDB(version, bm.name, bm.dbType, dir)
 		require.NoError(b, err)
-		s, err := newStore(version, db, nil, cacheSize)
+		s, err := newStore(version, db)
 		require.NoError(b, err)
 		b.Run(bm.name, func(sub *testing.B) {
 			runDeterministicOperations(sub, s, values, bm.counts)
@@ -376,8 +362,8 @@ func runSuite(b *testing.B, version int, dbBackendTypes []tmdb.BackendType, dir 
 	}
 
 	// test performance when the store reverting to the last committed version
-	committedValues := prepareValues()
-	uncommittedValues := prepareValues()
+	committedValues := prepareValues(5000)
+	uncommittedValues := prepareValues(5000)
 	for _, dbType := range dbBackendTypes {
 		s, db := prepareStore(b, version, dbType, committedValues)
 		b.Run(fmt.Sprintf("v%d-%s-revert", version, dbType), func(sub *testing.B) {
@@ -392,64 +378,4 @@ func (p percentages) String() string {
 
 func (ct counts) String() string {
 	return fmt.Sprintf("d-%d-%d-%d-%d", ct.has, ct.get, ct.set, ct.delete)
-}
-
-// stub out commit on both stores, to test only tree CRUD
-type smtStore struct {
-	*smt.Store
-	db db.DBConnection
-	rw db.DBReadWriter
-}
-
-func (s *smtStore) Commit() types.CommitID {
-	root := s.Root()
-	if err := s.rw.Commit(); err != nil {
-		panic(err)
-	}
-	s.rw = s.db.ReadWriter()
-	s.Store = smt.LoadStore(s.rw, root)
-	return types.CommitID{Hash: root}
-}
-
-type treeStoreCtor = func(db.DBConnection) store
-
-func newSmtStore(dbc db.DBConnection) store {
-	rw := dbc.ReadWriter()
-	return &smtStore{smt.NewStore(rw), dbc, rw}
-}
-
-func newIavlStore(dbc db.DBConnection) store {
-	s, err := iavl.LoadStore(dbutil.ConnectionAsTmdb(dbc), types.CommitID{}, false, cacheSize)
-	if err != nil {
-		panic(err)
-	}
-	return s
-}
-
-func runTreeSuite(b *testing.B, ctor treeStoreCtor) {
-	// run randomized operations subbenchmarks for various scenarios
-	percentages := generateGradedPercentages()
-
-	values := prepareValues()
-	for _, pct := range percentages {
-		db := memdb.NewDB()
-		s := ctor(db)
-		for i, v := range values { // add existing data
-			s.Set(createKey(i), v)
-		}
-		b.Run("memdb-"+pct.String(), func(sub *testing.B) {
-			runRandomizedOperations(sub, s, 1000, pct)
-		})
-	}
-
-	// run deterministic operations subbenchmarks for various scenarios
-	c := counts{has: 200, get: 5500, set: 4000, delete: 300}
-	sampledCounts := []counts{c}
-	for _, ct := range sampledCounts {
-		db := memdb.NewDB()
-		s := ctor(db)
-		b.Run("memdb-"+ct.String(), func(sub *testing.B) {
-			runDeterministicOperations(sub, s, values, ct)
-		})
-	}
 }

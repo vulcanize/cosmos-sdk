@@ -24,6 +24,8 @@ var (
 
 	errKeyEmpty = errors.New("key is empty or nil")
 	errValueNil = errors.New("value is nil")
+
+	mapCacheSize uint64 = 64
 )
 
 // StoreParams defines how the SMT structural and value data are accessed internally.
