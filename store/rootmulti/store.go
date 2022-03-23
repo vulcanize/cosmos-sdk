@@ -415,7 +415,7 @@ func (rs *Store) Commit() types.CommitID {
 		version = previousHeight + 1
 	}
 
-	rs.lastCommitInfo = commitStores(version, rs.stores, rs.removalMap)
+	rs.lastCommitInfo = rs.commitStores(version, rs.stores, rs.removalMap)
 	defer rs.flushMetadata(rs.db, version, rs.lastCommitInfo)
 
 	// remove remnants of removed stores
@@ -993,11 +993,12 @@ func getLatestVersion(db dbm.DB) int64 {
 }
 
 // Commits each store and returns a new commitInfo.
-func commitStores(version int64, storeMap map[types.StoreKey]types.CommitKVStore, removalMap map[types.StoreKey]bool) *types.CommitInfo {
+func (rs *Store) commitStores(version int64, storeMap map[types.StoreKey]types.CommitKVStore, removalMap map[types.StoreKey]bool) *types.CommitInfo {
 	storeInfos := make([]types.StoreInfo, 0, len(storeMap))
 
 	for key, store := range storeMap {
 		commitID := store.Commit()
+		rs.logger.Info("committed KVStore", "height", commitID.Version, "key", key.Name(), "commit_store_hash", fmt.Sprintf("%X", commitID.Hash))
 
 		if store.GetStoreType() == types.StoreTypeTransient {
 			continue
