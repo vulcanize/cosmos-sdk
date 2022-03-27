@@ -152,7 +152,7 @@ func setupBaseAppWithSnapshots(t *testing.T, config *setupConfig) (*BaseApp, err
 		}))
 	}
 
-	snapshotTimeout := 1 * time.Minute
+	snapshotTimeout := 90 * time.Second
 	snapshotStore, err := snapshots.NewStore(memdb.NewDB(), testutil.GetTempDir(t))
 	require.NoError(t, err)
 
