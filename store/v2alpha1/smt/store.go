@@ -14,7 +14,7 @@ import (
 
 var (
 	_ types.BasicKVStore = (*Store)(nil)
-	_ smt.MapStore       = (dbMapStore{})
+	_ smt.MapStore       = (DbMapStore{})
 )
 
 var (
@@ -45,7 +45,7 @@ type Store struct {
 
 // An smt.MapStore that wraps Get to raise smt.InvalidKeyError;
 // smt.SparseMerkleTree expects this error to be returned when a key is not found
-type dbMapStore struct{ dbm.DBReadWriter }
+type DbMapStore struct{ dbm.DBReadWriter }
 
 func NewStore(par StoreParams) *Store {
 	nodes := prefix.NewPrefixReadWriter(par.TreeData, nodesPrefix)
@@ -55,7 +55,7 @@ func NewStore(par StoreParams) *Store {
 		values = prefix.NewPrefixReadWriter(par.TreeData, valuesPrefix)
 	}
 	return &Store{
-		tree:      smt.NewSMT(dbMapStore{nodes}, sha256.New()),
+		tree:      smt.NewSMT(DbMapStore{nodes}, sha256.New()),
 		values:    values,
 		preimages: preimages,
 	}
@@ -69,7 +69,7 @@ func LoadStore(par StoreParams, root []byte) *Store {
 		values = prefix.NewPrefixReadWriter(par.TreeData, valuesPrefix)
 	}
 	return &Store{
-		tree:      smt.ImportSMT(dbMapStore{nodes}, sha256.New(), root),
+		tree:      smt.ImportSMT(DbMapStore{nodes}, sha256.New(), root),
 		values:    values,
 		preimages: preimages,
 	}
@@ -147,7 +147,7 @@ func (s *Store) Commit() error {
 	return s.tree.Save()
 }
 
-func (ms dbMapStore) Get(key []byte) ([]byte, error) {
+func (ms DbMapStore) Get(key []byte) ([]byte, error) {
 	val, err := ms.DBReadWriter.Get(key)
 	if err != nil {
 		return nil, err
@@ -158,7 +158,7 @@ func (ms dbMapStore) Get(key []byte) ([]byte, error) {
 	return val, nil
 }
 
-func (ms dbMapStore) Delete(key []byte) error {
+func (ms DbMapStore) Delete(key []byte) error {
 	has, err := ms.DBReadWriter.Has(key)
 	if err != nil {
 		return err
