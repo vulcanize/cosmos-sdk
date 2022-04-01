@@ -23,28 +23,43 @@ import (
 	tmdb "github.com/tendermint/tm-db"
 )
 
-func BenchmarkNewKVStoreV1(b *testing.B) {
-	for _, dbt := range []dbCtor{memdbCtor, badgerCtor} {
+var (
+	dbBackends = []dbCtor{memdbCtor, badgerCtor}
+	// Reload store store after filling test data - massive drop in IAVL perf
+	reloadAfterFill = false
+	// number of values of pre-filled data
+	nValues = 100_000
+	// number of ops per bench iteration
+	totalOpsCount = 1000
+)
+
+func BenchmarkKVStore(b *testing.B) {
+	v1_BenchmarkKVStore(b)
+}
+func BenchmarkMultiStore(b *testing.B) {
+	v1_BenchmarkMultiStore(b)
+}
+
+func v1_BenchmarkKVStore(b *testing.B) {
+	for _, dbt := range dbBackends {
 		runRW(b, newIavlStore, dbt)
-		runGets(b, newIavlStore, dbt)
 	}
 }
-func BenchmarkNewMultiStoreV1(b *testing.B) {
-	for _, dbt := range []dbCtor{memdbCtor, badgerCtor} {
+func v1_BenchmarkMultiStore(b *testing.B) {
+	for _, dbt := range dbBackends {
 		runGetPast(b, newMultiV1, dbt)
 		f := func(b *testing.B, dbc db.DBConnection, _ *types.CommitID) store { return newMultiV1(b, dbc) }
 		runRW(b, f, dbt)
 	}
 }
 
-func BenchmarkNewKVStoreV2(b *testing.B) {
-	for _, dbt := range []dbCtor{memdbCtor, badgerCtor} {
+func v2_BenchmarkKVStore(b *testing.B) {
+	for _, dbt := range dbBackends {
 		runRW(b, newSmtStore, dbt)
-		runGets(b, newSmtStore, dbt)
 	}
 }
-func BenchmarkNewMultiStoreV2(b *testing.B) {
-	for _, dbt := range []dbCtor{memdbCtor, badgerCtor} {
+func v2_BenchmarkMultiStore(b *testing.B) {
+	for _, dbt := range dbBackends {
 		runGetPast(b, newMultiV2, dbt)
 		f := func(b *testing.B, dbc db.DBConnection, _ *types.CommitID) store { return newMultiV2(b, dbc) }
 		runRW(b, f, dbt)
@@ -62,14 +77,14 @@ type versionedStore interface {
 	LoadVersion(int64)
 }
 
-type multistoreV2 struct {
-	*storev2.Store
-	storev2types.KVStore
-}
-
 type multistoreV1 struct {
 	*rootmulti.Store
 	types.KVStore
+}
+
+type multistoreV2 struct {
+	*storev2.Store
+	storev2types.KVStore
 }
 
 func (s *multistoreV1) LoadVersion(v int64) {
@@ -159,74 +174,72 @@ func distinctKeys(from, to int) (ret [][]byte) {
 	return
 }
 
-// run pure-read and pure-write cases
+type benchCase struct {
+	name string
+	pcts percentages
+}
+
+// runs Get and Set ops for all-present and all-absent keys
 func runRW(b *testing.B, sctor storeCtor, dbctor dbCtor) {
 	dir := b.TempDir()
 	rand.Seed(seed)
 
-	cases := []percentages{{0, 100, 0, 0}, {0, 0, 100, 0}}
-	nValues := 10_000
-
-	var values [][]byte
-	for _, pct := range cases {
-		name := fmt.Sprintf("%s-%s", dbctor.typ, pct.String())
-		b.Run(name, func(b *testing.B) {
-			if values == nil {
-				values = prepareValues(nValues)
-			}
-			db := dbctor.new(filepath.Join(dir, name))
-			s := sctor(b, db, nil)
-			for i, v := range values { // add existing data
-				s.Set(createSineKey(i), v)
-				if i%commitInterval == 0 {
-					s.Commit()
+	b.Run(fmt.Sprintf("%s", dbctor.typ), func(b *testing.B) {
+		db := dbctor.new(dir)
+		store := sctor(b, db, nil)
+		values := prepareValues(nValues)
+		keys := distinctKeys(0, nValues)
+		nonkeys := distinctKeys(nValues, nValues*2)
+		for i, v := range values {
+			store.Set(keys[i], v)
+		}
+		if reloadAfterFill {
+			cid := store.Commit()
+			if ms, ok := store.(*multistoreV2); ok {
+				if err := ms.Close(); err != nil {
+					panic(err)
 				}
 			}
-			runRandomizedOperations(b, s, 1000, pct)
-			b.StopTimer()
-			db.Close()
+			store = sctor(b, db, &cid)
+		}
+
+		b.Run("get-present", func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				for j := 0; j < totalOpsCount; j++ {
+					ki := rand.Intn(nValues)
+					store.Get(keys[ki])
+				}
+			}
 		})
-	}
-}
 
-// runs get ops for all-present or all-absent keys
-func runGets(b *testing.B, sctor storeCtor, dbctor dbCtor) {
-	dir := b.TempDir()
-	rand.Seed(seed)
-
-	nValues := 100_000
-	totalOpsCount := 1000
-
-	db := dbctor.new(dir)
-	store := sctor(b, db, nil)
-	values := prepareValues(nValues)
-	keys := distinctKeys(0, nValues)
-	nonkeys := distinctKeys(nValues, nValues*2)
-	for i, v := range values {
-		store.Set(keys[i], v)
-	}
-	// Reloads store - massive drop in IAVL perf
-	// cid := store.Commit()
-	// store = sctor(b, db, &cid)
-
-	b.Run(fmt.Sprintf("%s-get-present", dbctor.typ), func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			for j := 0; j < totalOpsCount; j++ {
-				ki := rand.Intn(nValues)
-				store.Get(keys[ki])
+		b.Run("get-absent", func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				for j := 0; j < totalOpsCount; j++ {
+					ki := rand.Intn(nValues)
+					store.Get(nonkeys[ki])
+				}
 			}
-		}
-	})
+		})
 
-	b.Run(fmt.Sprintf("%s-get-absent", dbctor.typ), func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			for j := 0; j < totalOpsCount; j++ {
-				ki := rand.Intn(nValues)
-				store.Get(nonkeys[ki])
+		b.Run("set-present", func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				for j := 0; j < totalOpsCount; j++ {
+					ki := rand.Intn(nValues)
+					store.Set(keys[ki], values[len(values)-1-ki])
+				}
 			}
-		}
+		})
+
+		b.Run("set-absent", func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				for j := 0; j < totalOpsCount; j++ {
+					ki := rand.Intn(nValues)
+					store.Set(nonkeys[ki], values[ki])
+				}
+			}
+		})
+		db.Close()
 	})
-	db.Close()
 }
 
 func newMultiV1(b *testing.B, dbc db.DBConnection) versionedStore {
@@ -246,13 +259,10 @@ func newMultiV2(b *testing.B, dbc db.DBConnection) versionedStore {
 	return &multistoreV2{root, store}
 }
 
+// test historical version access (read-only test cases)
 func runGetPast(b *testing.B, sctor versionedStoreCtor, dbctor dbCtor) {
 	dir := b.TempDir()
 	rand.Seed(seed)
-
-	// test historical version access - use read-only test cases
-	nValues := 10_000
-	totalOpsCount := 1000
 
 	name := fmt.Sprintf("%s-getpast", dbctor.typ)
 	b.Run(name, func(b *testing.B) {
@@ -261,7 +271,7 @@ func runGetPast(b *testing.B, sctor versionedStoreCtor, dbctor dbCtor) {
 		store := sctor(b, db)
 		var lastversion int64
 		for i, v := range values {
-			store.Set(createSineKey(i*2), v) // half of read key will be present
+			store.Set(createDistinctKey(i*2), v) // half of read keys will be present
 			if i%commitInterval == 0 {
 				cid := store.Commit()
 				lastversion = cid.Version
@@ -271,11 +281,12 @@ func runGetPast(b *testing.B, sctor versionedStoreCtor, dbctor dbCtor) {
 			b.Fatal("historical version requires > 1 commits")
 		}
 		store.LoadVersion(lastversion - 1)
+		readKeys := distinctKeys(0, nValues)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			for j := 0; j < totalOpsCount; j++ {
 				ki := rand.Intn(nValues)
-				store.Get(createSineKey(ki))
+				store.Get(readKeys[ki])
 			}
 		}
 		b.StopTimer()

@@ -28,12 +28,16 @@ var (
 	seed           = int64(42)
 )
 
-func BenchmarkStoreV1(b *testing.B) {
+func BenchmarkStoreCombined(b *testing.B) {
+	v1_BenchmarkStoreCombined(b)
+}
+
+func v1_BenchmarkStoreCombined(b *testing.B) {
 	dbBackendTypes := []tmdb.BackendType{tmdb.BadgerDBBackend}
 	runSuite(b, 1, dbBackendTypes, b.TempDir())
 }
 
-func BenchmarkStoreV2(b *testing.B) {
+func v2_BenchmarkStoreCombined(b *testing.B) {
 	dbBackendTypes := []tmdb.BackendType{tmdb.BadgerDBBackend}
 	runSuite(b, 2, dbBackendTypes, b.TempDir())
 }
