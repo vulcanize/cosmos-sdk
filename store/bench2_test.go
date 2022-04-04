@@ -24,7 +24,7 @@ import (
 )
 
 var (
-	dbBackends = []dbCtor{memdbCtor, badgerCtor}
+	dbBackends = []dbCtor{memdbCtor}
 	// Reload store store after filling test data - massive drop in IAVL perf
 	reloadAfterFill = false
 	// number of values of pre-filled data
