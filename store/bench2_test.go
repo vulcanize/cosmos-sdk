@@ -5,14 +5,11 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/rand"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/cosmos/cosmos-sdk/db"
-	"github.com/cosmos/cosmos-sdk/db/badgerdb"
-	"github.com/cosmos/cosmos-sdk/db/memdb"
 	dbutil "github.com/cosmos/cosmos-sdk/internal/db"
 	"github.com/cosmos/cosmos-sdk/store/iavl"
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
@@ -20,13 +17,12 @@ import (
 	storev2types "github.com/cosmos/cosmos-sdk/store/v2alpha1"
 	storev2 "github.com/cosmos/cosmos-sdk/store/v2alpha1/multi"
 	"github.com/cosmos/cosmos-sdk/store/v2alpha1/smt"
-	tmdb "github.com/tendermint/tm-db"
 )
 
 var (
-	dbBackends = []dbCtor{memdbCtor}
-	// Reload store store after filling test data - massive drop in IAVL perf
-	reloadAfterFill = false
+	dbBackends = []db.BackendType{db.MemDBBackend}
+	// Reload store store after filling test data - state is not cached
+	reloadStore = false
 	// number of values of pre-filled data
 	nValues = 100_000
 	// number of ops per bench iteration
@@ -100,17 +96,13 @@ func (s *multistoreV2) LoadVersion(v int64) {
 }
 
 func (s *smtStore) Commit() types.CommitID {
-	err := s.Store.Commit()
-	if err != nil {
+	if err := s.Store.Commit(); err != nil {
 		panic(err)
 	}
-	root := s.Root()
-	if err = s.rw.Commit(); err != nil {
+	if err := s.rw.Commit(); err != nil {
 		panic(err)
 	}
-	s.rw = s.db.ReadWriter()
-	s.Store = smt.LoadStore(s.rw, root)
-	return types.CommitID{Hash: root}
+	return types.CommitID{Hash: s.Root()}
 }
 
 type storeCtor = func(*testing.B, db.DBConnection, *types.CommitID) store
@@ -132,31 +124,11 @@ func newIavlStore(b *testing.B, dbc db.DBConnection, cidp *types.CommitID) store
 	if cidp != nil {
 		cid = *cidp
 	}
-	s, err := iavl.LoadStore(dbutil.ConnectionAsTmdb(dbc), cid, false, cacheSize)
+	s, err := iavl.LoadStore(dbutil.ConnectionAsTmdb(dbc), cid, false, iavlCacheSize)
 	if err != nil {
 		panic(err)
 	}
 	return s
-}
-
-type dbCtor struct {
-	typ tmdb.BackendType
-	new func(string) db.DBConnection
-}
-
-var memdbCtor = dbCtor{
-	tmdb.MemDBBackend,
-	func(string) db.DBConnection { return memdb.NewDB() },
-}
-var badgerCtor = dbCtor{
-	tmdb.BadgerDBBackend,
-	func(dir string) db.DBConnection {
-		d, err := badgerdb.NewDB(dir)
-		if err != nil {
-			panic(err)
-		}
-		return d
-	},
 }
 
 // creates a unique key for int x
@@ -180,12 +152,13 @@ type benchCase struct {
 }
 
 // runs Get and Set ops for all-present and all-absent keys
-func runRW(b *testing.B, sctor storeCtor, dbctor dbCtor) {
+func runRW(b *testing.B, sctor storeCtor, dbt db.BackendType) {
 	dir := b.TempDir()
 	rand.Seed(seed)
 
-	b.Run(fmt.Sprintf("%s", dbctor.typ), func(b *testing.B) {
-		db := dbctor.new(dir)
+	b.Run(fmt.Sprintf("%s", dbt), func(b *testing.B) {
+		db, err := db.NewDB(string(dbt), dbt, dir)
+		require.NoError(b, err)
 		store := sctor(b, db, nil)
 		values := prepareValues(nValues)
 		keys := distinctKeys(0, nValues)
@@ -193,8 +166,14 @@ func runRW(b *testing.B, sctor storeCtor, dbctor dbCtor) {
 		for i, v := range values {
 			store.Set(keys[i], v)
 		}
-		if reloadAfterFill {
-			cid := store.Commit()
+		var cid types.CommitID
+		if reloadStore {
+			cid = store.Commit()
+		}
+		reload := func() {
+			if !reloadStore {
+				return
+			}
 			if ms, ok := store.(*multistoreV2); ok {
 				if err := ms.Close(); err != nil {
 					panic(err)
@@ -203,6 +182,7 @@ func runRW(b *testing.B, sctor storeCtor, dbctor dbCtor) {
 			store = sctor(b, db, &cid)
 		}
 
+		reload()
 		b.Run("get-present", func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				for j := 0; j < totalOpsCount; j++ {
@@ -212,6 +192,7 @@ func runRW(b *testing.B, sctor storeCtor, dbctor dbCtor) {
 			}
 		})
 
+		reload()
 		b.Run("get-absent", func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				for j := 0; j < totalOpsCount; j++ {
@@ -221,6 +202,7 @@ func runRW(b *testing.B, sctor storeCtor, dbctor dbCtor) {
 			}
 		})
 
+		reload()
 		b.Run("set-present", func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				for j := 0; j < totalOpsCount; j++ {
@@ -230,6 +212,7 @@ func runRW(b *testing.B, sctor storeCtor, dbctor dbCtor) {
 			}
 		})
 
+		reload()
 		b.Run("set-absent", func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				for j := 0; j < totalOpsCount; j++ {
@@ -260,14 +243,15 @@ func newMultiV2(b *testing.B, dbc db.DBConnection) versionedStore {
 }
 
 // test historical version access (read-only test cases)
-func runGetPast(b *testing.B, sctor versionedStoreCtor, dbctor dbCtor) {
+func runGetPast(b *testing.B, sctor versionedStoreCtor, dbt db.BackendType) {
 	dir := b.TempDir()
 	rand.Seed(seed)
 
-	name := fmt.Sprintf("%s-getpast", dbctor.typ)
+	name := fmt.Sprintf("%s/getpast", dbt)
+	values := prepareValues(nValues)
 	b.Run(name, func(b *testing.B) {
-		values := prepareValues(nValues)
-		db := dbctor.new(filepath.Join(dir, name))
+		db, err := db.NewDB(name, dbt, dir)
+		require.NoError(b, err)
 		store := sctor(b, db)
 		var lastversion int64
 		for i, v := range values {

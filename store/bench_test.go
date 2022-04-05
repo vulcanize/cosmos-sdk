@@ -13,8 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/cosmos/cosmos-sdk/db"
-	"github.com/cosmos/cosmos-sdk/db/badgerdb"
-	"github.com/cosmos/cosmos-sdk/db/rocksdb"
 	storev1 "github.com/cosmos/cosmos-sdk/store/iavl"
 	"github.com/cosmos/cosmos-sdk/store/types"
 	storev2 "github.com/cosmos/cosmos-sdk/store/v2alpha1/multi"
@@ -22,10 +20,11 @@ import (
 )
 
 var (
-	cacheSize      = 100
-	skey_1         = types.NewKVStoreKey("store1")
+	skey_1 = types.NewKVStoreKey("store1")
+	seed   = int64(42)
+
+	iavlCacheSize  = 10_000
 	commitInterval = 200
-	seed           = int64(42)
 )
 
 func BenchmarkStoreCombined(b *testing.B) {
@@ -245,38 +244,19 @@ func RunRvert(b *testing.B, s store, db interface{}, uncommittedValues [][]byte)
 	return s
 }
 
-func newDB(version int, dbName string, dbType tmdb.BackendType, dir string) (db interface{}, err error) {
+func newDB(version int, dbName string, dbType tmdb.BackendType, dir string) (interface{}, error) {
 	d := filepath.Join(dir, dbName, dbName+".db")
-	err = os.MkdirAll(d, os.ModePerm)
+	err := os.MkdirAll(d, os.ModePerm)
 	if err != nil {
 		panic(err)
 	}
 
 	if version == 1 {
-		db, err = tmdb.NewDB(dbName, dbType, d)
-		if err != nil {
-			return nil, err
-		}
-		return db, err
+		return tmdb.NewDB(dbName, dbType, d)
 	}
 
 	if version == 2 {
-		switch dbType {
-		case tmdb.RocksDBBackend:
-			db, err = rocksdb.NewDB(d)
-			if err != nil {
-				return nil, err
-			}
-			return db, nil
-		case tmdb.BadgerDBBackend:
-			db, err = badgerdb.NewDB(d)
-			if err != nil {
-				return nil, err
-			}
-			return db, nil
-		default:
-			return nil, fmt.Errorf("not supported backend for store v2")
-		}
+		return db.NewDB(dbName, db.BackendType(string(dbType)), d)
 	}
 
 	return nil, fmt.Errorf("not supported version")
@@ -288,7 +268,7 @@ func newStore(version int, dbBackend interface{}) (store, error) {
 		if !ok {
 			return nil, fmt.Errorf("unsupported db type")
 		}
-		s, err := storev1.LoadStore(db, types.CommitID{Version: 0, Hash: nil}, false, cacheSize)
+		s, err := storev1.LoadStore(db, types.CommitID{Version: 0, Hash: nil}, false, iavlCacheSize)
 		if err != nil {
 			return nil, err
 		}
@@ -366,7 +346,7 @@ func runSuite(b *testing.B, version int, dbBackendTypes []tmdb.BackendType, dir 
 	}
 
 	// test performance when the store reverting to the last committed version
-	committedValues := prepareValues(5000)
+	committedValues := values
 	uncommittedValues := prepareValues(5000)
 	for _, dbType := range dbBackendTypes {
 		s, db := prepareStore(b, version, dbType, committedValues)
