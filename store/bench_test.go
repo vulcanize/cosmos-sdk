@@ -17,7 +17,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/db/rocksdb"
 	storev1 "github.com/cosmos/cosmos-sdk/store/iavl"
 	"github.com/cosmos/cosmos-sdk/store/types"
-	storev2 "github.com/cosmos/cosmos-sdk/store/v2/multi"
+	storev2 "github.com/cosmos/cosmos-sdk/store/v2alpha1/multi"
 	tmdb "github.com/tendermint/tm-db"
 )
 

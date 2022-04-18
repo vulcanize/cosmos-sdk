@@ -17,9 +17,9 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/iavl"
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	"github.com/cosmos/cosmos-sdk/store/types"
-	storev2types "github.com/cosmos/cosmos-sdk/store/v2"
-	storev2 "github.com/cosmos/cosmos-sdk/store/v2/multi"
-	"github.com/cosmos/cosmos-sdk/store/v2/smt"
+	storev2types "github.com/cosmos/cosmos-sdk/store/v2alpha1"
+	storev2 "github.com/cosmos/cosmos-sdk/store/v2alpha1/multi"
+	"github.com/cosmos/cosmos-sdk/store/v2alpha1/smt"
 	tmdb "github.com/tendermint/tm-db"
 )
 

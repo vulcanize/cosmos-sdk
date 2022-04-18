@@ -9,7 +9,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/db/memdb"
 	"github.com/cosmos/cosmos-sdk/db/prefix"
-	smtstore "github.com/cosmos/cosmos-sdk/store/v2/smt"
+	smtstore "github.com/cosmos/cosmos-sdk/store/v2alpha1/smt"
 )
 
 // compare SMT with different mapstore backends - memdb vs hashmap
