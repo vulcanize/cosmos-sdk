@@ -15,18 +15,11 @@ import (
 func createIcs23Proof(store *Store, key []byte) (*ics23.CommitmentProof, error) {
 	ret := &ics23.CommitmentProof{}
 	path := sha256.Sum256(key)
-	valueHash, err := store.tree.Get(key)
+	value, err := store.tree.Get(key)
 	if err != nil {
 		return nil, err
 	}
-	if valueHash != nil { // Membership proof
-		value, err := store.values.Get(key)
-		if err != nil {
-			return nil, err
-		}
-		if value == nil {
-			return nil, fmt.Errorf("value not found for: %v", key)
-		}
+	if value != nil { // Membership proof
 		proof, err := store.tree.Prove(key)
 		if err != nil {
 			return nil, err
@@ -52,7 +45,7 @@ func toNonExistenceProof(store *Store, path [32]byte) (*ics23.NonExistenceProof,
 	getNext := func(it dbm.Iterator) (*ics23.ExistenceProof, error) {
 		defer it.Close()
 		if it.Next() {
-			value, err := store.values.Get(it.Value())
+			value, err := store.tree.Get(it.Value())
 			if err != nil {
 				return nil, err
 			}

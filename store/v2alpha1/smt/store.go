@@ -20,7 +20,6 @@ var (
 var (
 	nodesPrefix     = []byte{0}
 	preimagesPrefix = []byte{1}
-	valuesPrefix    = []byte{2}
 
 	errKeyEmpty = errors.New("key is empty or nil")
 	errValueNil = errors.New("value is nil")
@@ -37,8 +36,6 @@ type StoreParams struct {
 // Store Implements types.BasicKVStore.
 type Store struct {
 	tree smt.SparseMerkleTree
-	// Maps value hash back to preimage
-	values dbm.DBReadWriter
 	// Maps hashed key (tree path) back to preimage
 	preimages dbm.DBReadWriter
 }
@@ -50,13 +47,9 @@ type DbMapStore struct{ dbm.DBReadWriter }
 func NewStore(par StoreParams) *Store {
 	nodes := prefix.NewPrefixReadWriter(par.TreeData, nodesPrefix)
 	preimages := prefix.NewPrefixReadWriter(par.TreeData, preimagesPrefix)
-	values := par.ValueData
-	if values == nil {
-		values = prefix.NewPrefixReadWriter(par.TreeData, valuesPrefix)
-	}
+	opt := smt.SetValueHasher(nil)
 	return &Store{
-		tree:      smt.NewSMT(DbMapStore{nodes}, sha256.New()),
-		values:    values,
+		tree:      smt.NewSMT(DbMapStore{nodes}, sha256.New(), opt),
 		preimages: preimages,
 	}
 }
@@ -64,13 +57,9 @@ func NewStore(par StoreParams) *Store {
 func LoadStore(par StoreParams, root []byte) *Store {
 	nodes := prefix.NewPrefixReadWriter(par.TreeData, nodesPrefix)
 	preimages := prefix.NewPrefixReadWriter(par.TreeData, preimagesPrefix)
-	values := par.ValueData
-	if values == nil {
-		values = prefix.NewPrefixReadWriter(par.TreeData, valuesPrefix)
-	}
+	opt := smt.SetValueHasher(nil)
 	return &Store{
-		tree:      smt.ImportSMT(DbMapStore{nodes}, sha256.New(), root),
-		values:    values,
+		tree:      smt.ImportSMT(DbMapStore{nodes}, sha256.New(), root, opt),
 		preimages: preimages,
 	}
 }
@@ -88,7 +77,7 @@ func (s *Store) Get(key []byte) []byte {
 	if len(key) == 0 {
 		panic(errKeyEmpty)
 	}
-	val, err := s.values.Get(key)
+	val, err := s.tree.Get(key)
 	if err != nil {
 		panic(err)
 	}
@@ -100,11 +89,11 @@ func (s *Store) Has(key []byte) bool {
 	if len(key) == 0 {
 		panic(errKeyEmpty)
 	}
-	has, err := s.values.Has(key)
+	val, err := s.tree.Get(key)
 	if err != nil {
 		panic(err)
 	}
-	return has
+	return val != nil
 }
 
 // Set sets the key. Panics on nil key or value.
@@ -116,9 +105,6 @@ func (s *Store) Set(key []byte, value []byte) {
 		panic(errValueNil)
 	}
 	if err := s.tree.Update(key, value); err != nil {
-		panic(err)
-	}
-	if err := s.values.Set(key, value); err != nil {
 		panic(err)
 	}
 	// TODO: plug into the SMT's hashers
@@ -134,9 +120,6 @@ func (s *Store) Delete(key []byte) {
 		panic(errKeyEmpty)
 	}
 	if err := s.tree.Delete(key); err != nil && err != smt.ErrKeyNotPresent {
-		panic(err)
-	}
-	if err := s.values.Delete(key); err != nil {
 		panic(err)
 	}
 	path := sha256.Sum256(key)

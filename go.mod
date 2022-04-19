@@ -162,3 +162,4 @@ retract v0.43.0
 
 // DEV
 replace github.com/lazyledger/smt => ../smt
+replace github.com/confio/ics23/go v0.7.0 => ../ics23/go
