@@ -112,9 +112,9 @@ func newSmtStore(b *testing.B, dbc db.DBConnection, cid *types.CommitID) store {
 	rw := dbc.ReadWriter()
 	var s *smt.Store
 	if cid == nil {
-		s = smt.NewStore(rw)
+		s = smt.NewStore(smt.StoreParams{TreeData: rw})
 	} else {
-		s = smt.LoadStore(rw, cid.Hash)
+		s = smt.LoadStore(smt.StoreParams{TreeData: rw}, cid.Hash)
 	}
 	return &smtStore{s, dbc, rw}
 }

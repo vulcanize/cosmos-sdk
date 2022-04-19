@@ -140,11 +140,13 @@ func (s *Store) Delete(key []byte) {
 		panic(err)
 	}
 	path := sha256.Sum256(key)
-	s.preimages.Delete(path[:])
+	if err := s.preimages.Delete(path[:]); err != nil {
+		panic(err)
+	}
 }
 
 func (s *Store) Commit() error {
-	return s.tree.Save()
+	return s.tree.Commit()
 }
 
 func (ms DbMapStore) Get(key []byte) ([]byte, error) {

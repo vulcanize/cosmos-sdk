@@ -15,25 +15,24 @@ import (
 // compare SMT with different mapstore backends - memdb vs hashmap
 func BenchmarkSMT(b *testing.B) {
 	{
-		nodes, values := smt.NewSimpleMap(), smt.NewSimpleMap()
-		b.Run("sm", func(b *testing.B) { runTreeSuite(b, nodes, values, false) })
+		nodes := smt.NewSimpleMap()
+		b.Run("sm", func(b *testing.B) { runTreeSuite(b, nodes, false) })
 	}
 	for _, cache := range []bool{false, true} {
 		db := memdb.NewDB()
 		rw := db.ReadWriter()
 		nodes := smtstore.DbMapStore{prefix.NewPrefixReadWriter(rw, []byte{0})}
-		values := smtstore.DbMapStore{prefix.NewPrefixReadWriter(rw, []byte{1})}
 		name := "memdb"
 		if cache {
 			name += "+cache"
 		}
-		b.Run(name, func(b *testing.B) { runTreeSuite(b, nodes, values, cache) })
+		b.Run(name, func(b *testing.B) { runTreeSuite(b, nodes, cache) })
 		db.Close()
 	}
 }
 
 // func runTreeRW(b *testing.B, tree *smt.SparseMerkleTree) {
-func runTreeSuite(b *testing.B, nodesmap, valuesmap smt.MapStore, cache bool) {
+func runTreeSuite(b *testing.B, nodesmap smt.MapStore, cache bool) {
 	nValues := 200_000
 	totalOpsCount := 1000
 
@@ -43,17 +42,13 @@ func runTreeSuite(b *testing.B, nodesmap, valuesmap smt.MapStore, cache bool) {
 
 	if cache {
 		nodesmap = smt.NewCachedMap(nodesmap, 0)
-		valuesmap = smt.NewCachedMap(valuesmap, 0)
 	}
-	tree := smt.NewSparseMerkleTree(nodesmap, valuesmap, sha256.New())
+	tree := smt.NewSMT(nodesmap, sha256.New())
 	for i, v := range values {
 		tree.Update(keys[i], v)
 	}
 	if cache {
-		if err := nodesmap.(smt.CommitMapStore).Commit(); err != nil {
-			b.Fatal(err)
-		}
-		if err := valuesmap.(smt.CommitMapStore).Commit(); err != nil {
+		if err := nodesmap.(*smt.CachedMapStore).Commit(); err != nil {
 			b.Fatal(err)
 		}
 	}
