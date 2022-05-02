@@ -624,7 +624,7 @@ func (app *BaseApp) createQueryContext(height int64, prove bool) (sdk.Context, e
 		return sdk.Context{},
 			sdkerrors.Wrapf(
 				sdkerrors.ErrInvalidRequest,
-				"failed to load state at height %d; %s (latest height: %d)", height, err, lastBlockHeight,
+				"failed to load state at height %d; %w", height, err,
 			)
 	}
 

@@ -122,37 +122,40 @@ func (s IntegrationTestSuite) TestSimulateTx_GRPC() {
 	s.Require().NoError(err)
 
 	testCases := []struct {
-		name      string
-		req       *tx.SimulateRequest
-		expErr    bool
-		expErrMsg string
+		name        string
+		req         *tx.SimulateRequest
+		expErr      bool
+		expErrMsg   string
+		repeatCount int
 	}{
-		{"nil request", nil, true, "request cannot be nil"},
-		{"empty request", &tx.SimulateRequest{}, true, "empty txBytes is not allowed"},
-		{"valid request with proto tx (deprecated)", &tx.SimulateRequest{Tx: protoTx}, false, ""},
-		{"valid request with tx_bytes", &tx.SimulateRequest{TxBytes: txBytes}, false, ""},
+		{"nil request", nil, true, "request cannot be nil", 1},
+		{"empty request", &tx.SimulateRequest{}, true, "empty txBytes is not allowed", 1},
+		{"valid request with proto tx (deprecated)", &tx.SimulateRequest{Tx: protoTx}, false, "", 1},
+		{"valid request with tx_bytes", &tx.SimulateRequest{TxBytes: txBytes}, false, "", 1000},
 	}
 
 	for _, tc := range testCases {
 		tc := tc
 		s.Run(tc.name, func() {
-			// Broadcast the tx via gRPC via the validator's clientCtx (which goes
-			// through Tendermint).
-			res, err := s.queryClient.Simulate(context.Background(), tc.req)
-			if tc.expErr {
-				s.Require().Error(err)
-				s.Require().Contains(err.Error(), tc.expErrMsg)
-			} else {
-				s.Require().NoError(err)
-				// Check the result and gas used are correct.
-				//
-				// The 13 events are:
-				// - Sending Fee to the pool: coin_spent, coin_received, transfer and message.sender=<val1>
-				// - tx.* events: tx.fee, tx.acc_seq, tx.signature
-				// - Sending Amount to recipient: coin_spent, coin_received, transfer and message.sender=<val1>
-				// - Msg events: message.module=bank and message.action=/cosmos.bank.v1beta1.MsgSend
-				s.Require().Equal(len(res.GetResult().GetEvents()), 13) // 1 coin recv 1 coin spent, 1 transfer, 3 messages.
-				s.Require().True(res.GetGasInfo().GetGasUsed() > 0)     // Gas used sometimes change, just check it's not empty.
+			for i := 0; i < tc.repeatCount; i++ {
+				// Broadcast the tx via gRPC via the validator's clientCtx (which goes
+				// through Tendermint).
+				res, err := s.queryClient.Simulate(context.Background(), tc.req)
+				if tc.expErr {
+					s.Require().Error(err)
+					s.Require().Contains(err.Error(), tc.expErrMsg)
+				} else {
+					s.Require().NoError(err)
+					// Check the result and gas used are correct.
+					//
+					// The 13 events are:
+					// - Sending Fee to the pool: coin_spent, coin_received, transfer and message.sender=<val1>
+					// - tx.* events: tx.fee, tx.acc_seq, tx.signature
+					// - Sending Amount to recipient: coin_spent, coin_received, transfer and message.sender=<val1>
+					// - Msg events: message.module=bank and message.action=/cosmos.bank.v1beta1.MsgSend
+					s.Require().Equal(len(res.GetResult().GetEvents()), 13) // 1 coin recv 1 coin spent, 1 transfer, 3 messages.
+					s.Require().True(res.GetGasInfo().GetGasUsed() > 0)     // Gas used sometimes change, just check it's not empty.
+				}
 			}
 		})
 	}
