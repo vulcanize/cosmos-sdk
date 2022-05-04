@@ -231,10 +231,14 @@ func runRW(b *testing.B, sctor storeCtor, dbt db.BackendType) {
 
 		reload()
 		b.Run("set-absent", func(b *testing.B) {
+			if b.N*totalOpsCount >= len(nonkeys) {
+				nonkeys = distinctKeys(nValues, nValues+2*len(nonkeys))
+				b.ResetTimer()
+			}
 			for i := 0; i < b.N; i++ {
 				for j := 0; j < totalOpsCount; j++ {
-					ki := rand.Intn(nValues)
-					store.Set(nonkeys[ki], values[ki])
+					ki := i*totalOpsCount + j
+					store.Set(nonkeys[ki], values[ki%len(values)])
 				}
 			}
 		})
