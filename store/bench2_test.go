@@ -242,6 +242,16 @@ func runRW(b *testing.B, sctor storeCtor, dbt db.BackendType) {
 				}
 			}
 		})
+
+		reload()
+		b.Run("delete", func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				for j := 0; j < totalOpsCount; j++ {
+					ki := rand.Intn(nValues)
+					store.Delete(keys[ki])
+				}
+			}
+		})
 		db.Close()
 	})
 }
