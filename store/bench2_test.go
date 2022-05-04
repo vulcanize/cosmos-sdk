@@ -62,6 +62,9 @@ func v2_BenchmarkMultiStore(b *testing.B) {
 	}
 }
 
+type storeCtor = func(*testing.B, db.DBConnection, *types.CommitID) store
+type versionedStoreCtor = func(*testing.B, db.DBConnection) versionedStore
+
 type smtStore struct {
 	*smt.Store
 	db db.DBConnection
@@ -105,9 +108,6 @@ func (s *smtStore) Commit() types.CommitID {
 	return types.CommitID{Hash: s.Root()}
 }
 
-type storeCtor = func(*testing.B, db.DBConnection, *types.CommitID) store
-type versionedStoreCtor = func(*testing.B, db.DBConnection) versionedStore
-
 func newSmtStore(b *testing.B, dbc db.DBConnection, cid *types.CommitID) store {
 	rw := dbc.ReadWriter()
 	var s *smt.Store
@@ -129,6 +129,23 @@ func newIavlStore(b *testing.B, dbc db.DBConnection, cidp *types.CommitID) store
 		panic(err)
 	}
 	return s
+}
+
+func newMultiV1(b *testing.B, dbc db.DBConnection) versionedStore {
+	store := rootmulti.NewStore(dbutil.ConnectionAsTmdb(dbc))
+	store.MountStoreWithDB(skey_1, types.StoreTypeIAVL, nil)
+	require.NoError(b, store.LoadLatestVersion())
+	sub := store.GetKVStore(skey_1)
+	return &multistoreV1{store, sub}
+}
+
+func newMultiV2(b *testing.B, dbc db.DBConnection) versionedStore {
+	simpleStoreParams, err := simpleStoreParams()
+	require.NoError(b, err)
+	root, err := storev2.NewStore(dbc, simpleStoreParams)
+	require.NoError(b, err)
+	store := root.GetKVStore(skey_1)
+	return &multistoreV2{root, store}
 }
 
 // creates a unique key for int x
@@ -223,23 +240,6 @@ func runRW(b *testing.B, sctor storeCtor, dbt db.BackendType) {
 		})
 		db.Close()
 	})
-}
-
-func newMultiV1(b *testing.B, dbc db.DBConnection) versionedStore {
-	store := rootmulti.NewStore(dbutil.ConnectionAsTmdb(dbc))
-	store.MountStoreWithDB(skey_1, types.StoreTypeIAVL, nil)
-	require.NoError(b, store.LoadLatestVersion())
-	sub := store.GetKVStore(skey_1)
-	return &multistoreV1{store, sub}
-}
-
-func newMultiV2(b *testing.B, dbc db.DBConnection) versionedStore {
-	simpleStoreParams, err := simpleStoreParams()
-	require.NoError(b, err)
-	root, err := storev2.NewStore(dbc, simpleStoreParams)
-	require.NoError(b, err)
-	store := root.GetKVStore(skey_1)
-	return &multistoreV2{root, store}
 }
 
 // test historical version access (read-only test cases)
