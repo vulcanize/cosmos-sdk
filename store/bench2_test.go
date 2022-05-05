@@ -27,7 +27,7 @@ var (
 	// Reload store store after filling test data - state is not cached
 	reloadStore = false
 	// number of values of pre-filled data
-	nValues = 100_000
+	nValues = 200_000
 	// number of ops per bench iteration
 	totalOpsCount = 1000
 	// how many operations in between commits
