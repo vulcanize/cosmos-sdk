@@ -19,6 +19,9 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/v2alpha1/smt"
 )
 
+// Fixed key length due to use of sha256
+const keyLength = 32
+
 var (
 	dbBackends = []db.BackendType{db.MemDBBackend}
 	// Reload store store after filling test data - state is not cached
@@ -27,6 +30,8 @@ var (
 	nValues = 100_000
 	// number of ops per bench iteration
 	totalOpsCount = 1000
+	// how many operations in between commits
+	opsPerCommit = 10000
 )
 
 func BenchmarkKVStore(b *testing.B) {
@@ -39,6 +44,7 @@ func BenchmarkMultiStore(b *testing.B) {
 func v1_BenchmarkKVStore(b *testing.B) {
 	for _, dbt := range dbBackends {
 		runRW(b, newIavlStore, dbt)
+		runCommit(b, newIavlStore, dbt)
 	}
 }
 func v1_BenchmarkMultiStore(b *testing.B) {
@@ -52,6 +58,7 @@ func v1_BenchmarkMultiStore(b *testing.B) {
 func v2_BenchmarkKVStore(b *testing.B) {
 	for _, dbt := range dbBackends {
 		runRW(b, newSmtStore, dbt)
+		runCommit(b, newSmtStore, dbt)
 	}
 }
 func v2_BenchmarkMultiStore(b *testing.B) {
@@ -64,6 +71,19 @@ func v2_BenchmarkMultiStore(b *testing.B) {
 
 type storeCtor = func(*testing.B, db.DBConnection, *types.CommitID) store
 type versionedStoreCtor = func(*testing.B, db.DBConnection) versionedStore
+
+type operation int
+
+const (
+	has operation = iota
+	get
+	insert
+	update
+	delete
+	// prove
+)
+
+type ratios struct{ has, get, insert, update, delete int }
 
 type smtStore struct {
 	*smt.Store
@@ -105,7 +125,11 @@ func (s *smtStore) Commit() types.CommitID {
 	if err := s.rw.Commit(); err != nil {
 		panic(err)
 	}
-	return types.CommitID{Hash: s.Root()}
+	root := s.Root()
+	rw := s.db.ReadWriter()
+	s.Store = smt.LoadStore(smt.StoreParams{TreeData: rw}, root)
+	s.rw = rw
+	return types.CommitID{Hash: root}
 }
 
 func newSmtStore(b *testing.B, dbc db.DBConnection, cid *types.CommitID) store {
@@ -163,9 +187,22 @@ func distinctKeys(from, to int) (ret [][]byte) {
 	return
 }
 
-type benchCase struct {
-	name string
-	pcts percentages
+func sampleByRatio(r ratios) operation {
+	ops := []operation{has, get, insert, update, delete}
+	thresholds := []int{
+		r.has,
+		r.has + r.get,
+		r.has + r.get + r.insert,
+		r.has + r.get + r.insert + r.update,
+	}
+	total := r.has + r.get + r.insert + r.update + r.delete
+	x := rand.Intn(total)
+	for i := 0; i < len(thresholds); i++ {
+		if x < thresholds[i] {
+			return ops[i]
+		}
+	}
+	return ops[len(ops)-1]
 }
 
 // runs Get and Set ops for all-present and all-absent keys
@@ -220,7 +257,7 @@ func runRW(b *testing.B, sctor storeCtor, dbt db.BackendType) {
 		})
 
 		reload()
-		b.Run("set-present", func(b *testing.B) {
+		b.Run("update", func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				for j := 0; j < totalOpsCount; j++ {
 					ki := rand.Intn(nValues)
@@ -230,7 +267,7 @@ func runRW(b *testing.B, sctor storeCtor, dbt db.BackendType) {
 		})
 
 		reload()
-		b.Run("set-absent", func(b *testing.B) {
+		b.Run("insert", func(b *testing.B) {
 			if b.N*totalOpsCount >= len(nonkeys) {
 				nonkeys = distinctKeys(nValues, nValues+2*len(nonkeys))
 				b.ResetTimer()
@@ -270,7 +307,7 @@ func runGetPast(b *testing.B, sctor versionedStoreCtor, dbt db.BackendType) {
 		var lastversion int64
 		for i, v := range values {
 			store.Set(createDistinctKey(i*2), v) // half of read keys will be present
-			if i%commitInterval == 0 {
+			if i%opsPerCommit == 0 {
 				cid := store.Commit()
 				lastversion = cid.Version
 			}
@@ -288,6 +325,64 @@ func runGetPast(b *testing.B, sctor versionedStoreCtor, dbt db.BackendType) {
 			}
 		}
 		b.StopTimer()
+		db.Close()
+	})
+}
+
+func runCommit(b *testing.B, sctor storeCtor, dbt db.BackendType) {
+	dir := b.TempDir()
+	rand.Seed(seed)
+
+	rats := ratios{get: 50, insert: 20, update: 25, delete: 5}
+
+	b.Run(fmt.Sprintf("%s/commit", dbt), func(b *testing.B) {
+		db, err := db.NewDB(string(dbt), dbt, dir)
+		require.NoError(b, err)
+		store := sctor(b, db, nil)
+		values := prepareValues(nValues)
+		keys := distinctKeys(0, nValues)
+		deleted := map[int]bool{}
+		for i, v := range values {
+			store.Set(createDistinctKey(i), v)
+		}
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			for j := 0; j < opsPerCommit; j++ {
+				op := sampleByRatio(rats)
+				if len(keys) < 2*len(deleted) {
+					op = insert
+				}
+				vi := rand.Intn(len(values))
+				if op == insert {
+					key := createDistinctKey(len(keys))
+					store.Set(key, values[vi])
+					keys = append(keys, key)
+					continue
+				}
+				var ki int
+				for { // find a present key
+					ki = rand.Intn(len(keys))
+					if !deleted[ki] {
+						break
+					}
+				}
+				switch op {
+				case has:
+					store.Has(keys[ki])
+				case get:
+					store.Get(keys[ki])
+				case update:
+					store.Set(keys[ki], values[vi])
+				case delete:
+					store.Delete(keys[ki])
+					deleted[ki] = true
+				}
+			}
+			b.StartTimer()
+			_ = store.Commit()
+			b.StopTimer()
+		}
 		db.Close()
 	})
 
