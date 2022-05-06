@@ -49,7 +49,7 @@ func v1_BenchmarkKVStore(b *testing.B) {
 }
 func v1_BenchmarkMultiStore(b *testing.B) {
 	for _, dbt := range dbBackends {
-		runGetPast(b, newMultiV1, dbt)
+		runGetHistorical(b, newMultiV1, dbt)
 		f := func(b *testing.B, dbc db.DBConnection, _ *types.CommitID) store { return newMultiV1(b, dbc) }
 		runRW(b, f, dbt)
 	}
@@ -63,7 +63,7 @@ func v2_BenchmarkKVStore(b *testing.B) {
 }
 func v2_BenchmarkMultiStore(b *testing.B) {
 	for _, dbt := range dbBackends {
-		runGetPast(b, newMultiV2, dbt)
+		runGetHistorical(b, newMultiV2, dbt)
 		f := func(b *testing.B, dbc db.DBConnection, _ *types.CommitID) store { return newMultiV2(b, dbc) }
 		runRW(b, f, dbt)
 	}
@@ -294,11 +294,11 @@ func runRW(b *testing.B, sctor storeCtor, dbt db.BackendType) {
 }
 
 // test historical version access (read-only test cases)
-func runGetPast(b *testing.B, sctor versionedStoreCtor, dbt db.BackendType) {
+func runGetHistorical(b *testing.B, sctor versionedStoreCtor, dbt db.BackendType) {
 	dir := b.TempDir()
 	rand.Seed(seed)
 
-	name := fmt.Sprintf("%s/getpast", dbt)
+	name := fmt.Sprintf("%s/get-hist", dbt)
 	values := prepareValues(nValues)
 	b.Run(name, func(b *testing.B) {
 		db, err := db.NewDB(name, dbt, dir)
@@ -385,5 +385,4 @@ func runCommit(b *testing.B, sctor storeCtor, dbt db.BackendType) {
 		}
 		db.Close()
 	})
-
 }
