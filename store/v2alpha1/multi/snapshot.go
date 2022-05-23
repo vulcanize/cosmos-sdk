@@ -42,6 +42,20 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 		return bytes.Compare(storeByteKeys[i], storeByteKeys[j]) == -1
 	})
 
+	appVersion, err := rs.GetAppVersion()
+	if err != nil {
+		return err
+	}
+	if err = protoWriter.WriteMsg(&snapshottypes.SnapshotItem{
+		Item: &snapshottypes.SnapshotItem_AppVersion{
+			AppVersion: &snapshottypes.SnapshotAppVersion{
+				Version: appVersion,
+			},
+		},
+	}); err != nil {
+		return err
+	}
+
 	err = protoWriter.WriteMsg(&snapshottypes.SnapshotItem{
 		Item: &snapshottypes.SnapshotItem_Schema{
 			Schema: &snapshottypes.SnapshotSchema{
@@ -157,6 +171,11 @@ loop:
 			}
 			// update the key/value SMT.Store
 			subStore.Set(item.KV.Key, item.KV.Value)
+
+		case *snapshottypes.SnapshotItem_AppVersion:
+			if err := rs.SetAppVersion(uint64(item.AppVersion.Version)); err != nil {
+				return snapshottypes.SnapshotItem{}, sdkerrors.Wrap(err, "error setting app version from received snapshot")
+			}
 
 		default:
 			break loop

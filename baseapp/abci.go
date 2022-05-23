@@ -30,6 +30,16 @@ const (
 	QueryPathP2P    = "p2p"
 	QueryPathStore  = "store"
 )
+const initialAppVersion = 0
+
+type AppVersionError struct {
+	Actual  uint64
+	Initial uint64
+}
+
+func (e *AppVersionError) Error() string {
+	return fmt.Sprintf("app version (%d) is not initial (%d)", e.Actual, e.Initial)
+}
 
 // InitChain implements the ABCI interface. It runs the initialization logic
 // directly on the CommitMultiStore.
@@ -53,10 +63,20 @@ func (app *BaseApp) InitChain(req abci.RequestInitChain) (res abci.ResponseInitC
 	app.setDeliverState(initHeader)
 	app.setCheckState(initHeader)
 
+	if err := app.SetAppVersion(initialAppVersion); err != nil {
+		panic(err)
+	}
+
 	// Store the consensus params in the BaseApp's paramstore. Note, this must be
 	// done after the deliver state and context have been set as it's persisted
 	// to state.
 	if req.ConsensusParams != nil {
+		// When InitChain is called, the app version should either be absent and determined by the application
+		// or set to 0. Panic if it's not.
+		if req.ConsensusParams.Version != nil && req.ConsensusParams.Version.AppVersion != initialAppVersion {
+			panic(AppVersionError{Actual: req.ConsensusParams.Version.AppVersion, Initial: initialAppVersion})
+		}
+
 		app.StoreConsensusParams(app.deliverState.ctx, req.ConsensusParams)
 	}
 
@@ -115,10 +135,15 @@ func (app *BaseApp) InitChain(req abci.RequestInitChain) (res abci.ResponseInitC
 func (app *BaseApp) Info(req abci.RequestInfo) abci.ResponseInfo {
 	lastCommitID := app.store.LastCommitID()
 
+	appVersion, err := app.GetAppVersion()
+	if err != nil {
+		app.logger.Error("failed to get app version", err)
+	}
+
 	return abci.ResponseInfo{
 		Data:             app.name,
 		Version:          app.version,
-		AppVersion:       app.appVersion,
+		AppVersion:       appVersion,
 		LastBlockHeight:  lastCommitID.Version,
 		LastBlockAppHash: lastCommitID.Hash,
 	}
@@ -738,6 +763,7 @@ func handleQueryApp(app *BaseApp, path []string, req abci.RequestQuery) abci.Res
 			}
 
 		case "version":
+
 			return abci.ResponseQuery{
 				Codespace: sdkerrors.RootCodespace,
 				Height:    req.Height,

@@ -23,6 +23,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/types"
 )
 
+const expectedAppVersion = uint64(10)
+
 var testStoreKeys []types.StoreKey
 
 func makeStoreKeys(upto int) {
@@ -76,6 +78,9 @@ func newMultiStoreWithGeneratedData(t *testing.T, db dbm.DBConnection, stores in
 			sStore.Set(k, v)
 		}
 	}
+
+	require.NoError(t, store.SetAppVersion(expectedAppVersion))
+
 	store.Commit()
 	return store
 }
@@ -157,13 +162,13 @@ func TestMultistoreSnapshot_Checksum(t *testing.T) {
 		format      uint32
 		chunkHashes []string
 	}{
-		{1, []string{
-			"b0635a30d94d56b6cd1073fbfa109fa90b194d0ff2397659b00934c844a1f6fb",
-			"8c32e05f312cf2dee6b7d2bdb41e1a2bb2372697f25504e676af1718245d8b63",
-			"05dfef0e32c34ef3900300f9de51f228d7fb204fa8f4e4d0d1529f083d122029",
-			"77d30aeeb427b0bdcedf3639adde1e822c15233d652782e171125280875aa492",
-			"c00c3801da889ea4370f0e647ffe1e291bd47f500e2a7269611eb4cc198b993f",
-			"6d565eb28776631f3e3e764decd53436c3be073a8a01fa5434afd539f9ae6eda",
+		{snapshottypes.CurrentFormat, []string{
+			"5eba26f24ff1d70b9a631815ee115a0a90cac46d2956e5a2958b8a40bd261dd0",
+			"5c27478b7a5745e7ff6192bddebf756bf875a46163ed0f7f6cef777130e78b33",
+			"c586a922b4ef44455a7d9aed231740fb5cd106afa0863ec11f9ff9e152eb9012",
+			"3c2bfb03ff5e70ddda33221aef545efcb4317430aea9a54b588b243bdbb55a53",
+			"42709e0a747b99cd29a968b12e2b795387b87dfa2f10edd2a6cc7745e16b8e85",
+			"e79b663620c1984ab2d143003382d6306b23fc3ad9eb79ca526cd1c6e5f8bf6e",
 		}},
 	}
 	for _, tc := range testcases {
@@ -227,12 +232,17 @@ func TestMultistoreSnapshotRestore(t *testing.T) {
 
 	assert.Equal(t, source.LastCommitID(), target.LastCommitID())
 
+	// check that the app version is restored from a snapshot.
+	appVersion, err := target.GetAppVersion()
+	require.NoError(t, err)
+	require.Equal(t, expectedAppVersion, appVersion)
+
 	for sKey := range source.schema {
 		sourceSubStore, err := source.getSubstore(sKey.Name())
 		require.NoError(t, err)
 		targetSubStore, err := target.getSubstore(sKey.Name())
 		require.NoError(t, err)
-		require.Equal(t, sourceSubStore, targetSubStore)
+		require.Equal(t, sourceSubStore, targetSubStore, sKey)
 	}
 
 	// checking snapshot restoring for store with existed schema and without existing versions

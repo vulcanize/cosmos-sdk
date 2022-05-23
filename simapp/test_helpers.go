@@ -54,6 +54,9 @@ var DefaultConsensusParams = &tmproto.ConsensusParams{
 			tmtypes.ABCIPubKeyTypeEd25519,
 		},
 	},
+	Version: &tmproto.VersionParams{
+		AppVersion: 0, // must be 0 during chain initialization.
+	},
 }
 
 // SetupOptions defines arguments that are passed into `Simapp` constructor.

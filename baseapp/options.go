@@ -105,7 +105,6 @@ func (app *BaseApp) SetParamStore(ps ParamStore) {
 	if app.sealed {
 		panic("SetParamStore() on sealed BaseApp")
 	}
-
 	app.paramStore = ps
 }
 
@@ -117,9 +116,20 @@ func (app *BaseApp) SetVersion(v string) {
 	app.version = v
 }
 
-// SetProtocolVersion sets the application's protocol version
-func (app *BaseApp) SetProtocolVersion(v uint64) {
-	app.appVersion = v
+// SetAppVersion sets the application's app version
+func (app *BaseApp) SetAppVersion(v uint64) error {
+	return app.store.SetAppVersion(v)
+}
+
+// GetAppVersion gets the application's app version
+// or error, if any.
+func (app *BaseApp) GetAppVersion() (uint64, error) {
+	appVersion, err := app.store.GetAppVersion()
+	if err != nil {
+		return 0, err
+
+	}
+	return appVersion, nil
 }
 
 func (app *BaseApp) SetInitChainer(initChainer sdk.InitChainer) {

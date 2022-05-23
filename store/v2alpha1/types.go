@@ -5,6 +5,7 @@ import (
 
 	snapshottypes "github.com/cosmos/cosmos-sdk/snapshots/types"
 	v1 "github.com/cosmos/cosmos-sdk/store/types"
+	vm "github.com/cosmos/cosmos-sdk/x/upgrade/exported"
 )
 
 // Re-export relevant original store types
@@ -90,6 +91,7 @@ type CommitMultiStore interface {
 	rootStoreTraceListen
 	Committer
 	snapshottypes.Snapshotter
+	vm.AppVersionManager
 
 	// Gets a read-only view of the store at a specific version.
 	// Returns an error if the version is not found.

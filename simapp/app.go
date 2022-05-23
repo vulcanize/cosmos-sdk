@@ -365,7 +365,7 @@ func NewSimApp(
 		),
 	)
 
-	upgradeKeeper.SetVersionSetter(app)
+	upgradeKeeper.SetVersionManager(app)
 	app.UpgradeKeeper = upgradeKeeper
 	// RegisterUpgradeHandlers is used for registering any on-chain upgrades
 	app.RegisterUpgradeHandlers()

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/v2alpha1/transient"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/kv"
+	vm "github.com/cosmos/cosmos-sdk/x/upgrade/exported"
 )
 
 var (
@@ -32,6 +34,8 @@ var (
 	_ types.CacheMultiStore  = (*cacheStore)(nil)
 	_ types.MultiStore       = (*viewStore)(nil)
 	_ types.KVStore          = (*substore)(nil)
+
+	_ vm.AppVersionManager = (*Store)(nil)
 )
 
 var (
@@ -42,12 +46,13 @@ var (
 	merkleRootKey = []byte{0} // Key for root hash of namespace tree
 	schemaPrefix  = []byte{1} // Prefix for store keys (namespaces)
 	contentPrefix = []byte{2} // Prefix for store contents
+	appVersionKey = []byte{3}
 
 	// Per-substore prefixes
 	substoreMerkleRootKey = []byte{0} // Key for root hashes of Merkle trees
 	dataPrefix            = []byte{1} // Prefix for state mappings
-	indexPrefix           = []byte{2} // Prefix for Store reverse index
-	smtPrefix             = []byte{3} // Prefix for SMT data
+
+	smtPrefix = []byte{3} // Prefix for SMT data
 )
 
 func ErrStoreNotFound(key string) error {
@@ -998,3 +1003,21 @@ func (tlm *traceListenMixin) wrapTraceListen(store types.KVStore, skey types.Sto
 
 func (s *Store) GetPruning() pruningtypes.PruningOptions   { return s.Pruning }
 func (s *Store) SetPruning(po pruningtypes.PruningOptions) { s.Pruning = po }
+
+func (rs *Store) SetAppVersion(appVersion uint64) error {
+	return rs.stateTxn.Set(appVersionKey, []byte(strconv.FormatUint(appVersion, 10)))
+}
+
+func (rs *Store) GetAppVersion() (uint64, error) {
+	rs.mtx.RLock()
+	defer rs.mtx.RUnlock()
+
+	bz, err := rs.stateTxn.Get(appVersionKey)
+	if err != nil {
+		return 0, err
+	} else if bz == nil {
+		return 0, nil
+	}
+
+	return strconv.ParseUint(string(bz), 10, 64)
+}

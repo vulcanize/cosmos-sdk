@@ -31,6 +31,7 @@ message SnapshotItem {
     SnapshotExtensionPayload  extension_payload = 4;
     SnapshotKVItem            kv = 5 [(gogoproto.customname) = "KV"];
     SnapshotSchema            schema = 6;
+    SnapshotAppVersion       app_version = 7;
   }
 }
 
@@ -81,4 +82,9 @@ message SnapshotKVItem {
 // Since: cosmos-sdk 0.46
 message SnapshotSchema{
   repeated bytes keys = 1;
+}
+
+// SnapshotAppVersion contains the app version.
+message SnapshotAppVersion {
+  uint64 version = 1;
 }

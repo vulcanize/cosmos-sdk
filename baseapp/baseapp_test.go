@@ -29,6 +29,7 @@ import (
 	stypes "github.com/cosmos/cosmos-sdk/store/v2alpha1"
 	"github.com/cosmos/cosmos-sdk/store/v2alpha1/multi"
 	"github.com/cosmos/cosmos-sdk/testutil"
+	"github.com/cosmos/cosmos-sdk/testutil/mock"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -44,13 +45,8 @@ var (
 	testTxPriority = int64(42)
 )
 
-type paramStore struct {
-	db *memdb.MemDB
-	rw dbm.DBReadWriter
-}
-
-func newParamStore(db *memdb.MemDB) *paramStore {
-	return &paramStore{db: db, rw: db.ReadWriter()}
+func newParamStore(db *memdb.MemDB) ParamStore {
+	return &mock.ParamStore{Db: db.ReadWriter()}
 }
 
 type setupConfig struct {
@@ -61,46 +57,16 @@ type setupConfig struct {
 	pruningOpts        pruningtypes.PruningOptions
 }
 
-func (ps *paramStore) Set(_ sdk.Context, key []byte, value interface{}) {
-	bz, err := json.Marshal(value)
-	if err != nil {
-		panic(err)
-	}
-
-	ps.rw.Set(key, bz)
-}
-
-func (ps *paramStore) Has(_ sdk.Context, key []byte) bool {
-	ok, err := ps.rw.Has(key)
-	if err != nil {
-		panic(err)
-	}
-
-	return ok
-}
-
-func (ps *paramStore) Get(_ sdk.Context, key []byte, ptr interface{}) {
-	bz, err := ps.rw.Get(key)
-	if err != nil {
-		panic(err)
-	}
-
-	if len(bz) == 0 {
-		return
-	}
-
-	if err := json.Unmarshal(bz, ptr); err != nil {
-		panic(err)
-	}
-}
-
 func defaultLogger() log.Logger {
 	return log.MustNewDefaultLogger("plain", "info", false).With("module", "sdk/app")
 }
 
 func newBaseApp(name string, options ...AppOption) *BaseApp {
+	return newBaseAppWithDB(name, memdb.NewDB(), options...)
+}
+
+func newBaseAppWithDB(name string, db dbm.DBConnection, options ...AppOption) *BaseApp {
 	logger := defaultLogger()
-	db := memdb.NewDB()
 	codec := codec.NewLegacyAmino()
 	registerTestCodec(codec)
 	return NewBaseApp(name, logger, db, testTxDecoder(codec), options...)
@@ -397,6 +363,7 @@ func TestTxDecoder(t *testing.T) {
 // Test that Info returns the latest committed state.
 func TestInfo(t *testing.T) {
 	app := newBaseApp(t.Name())
+	app.InitChain(abci.RequestInitChain{})
 
 	// ----- test an empty response -------
 	reqInfo := abci.RequestInfo{}
@@ -407,9 +374,11 @@ func TestInfo(t *testing.T) {
 	assert.Equal(t, t.Name(), res.GetData())
 	assert.Equal(t, int64(0), res.LastBlockHeight)
 	require.Equal(t, []uint8(nil), res.LastBlockAppHash)
-	require.Equal(t, app.AppVersion(), res.AppVersion)
-	// ----- test a proper response -------
-	// TODO
+
+	appVersion, err := app.GetAppVersion()
+	require.NoError(t, err)
+
+	assert.Equal(t, appVersion, res.AppVersion)
 }
 
 func TestBaseAppOptionSeal(t *testing.T) {
@@ -534,6 +503,50 @@ func TestInitChainer(t *testing.T) {
 
 	res = app.Query(query)
 	require.Equal(t, value, res.Value)
+}
+
+func TestInitChain_AppVersionSetToZero(t *testing.T) {
+	const expectedAppVersion = uint64(0)
+
+	name := t.Name()
+	logger := defaultLogger()
+	app := NewBaseApp(name, logger, memdb.NewDB(), nil)
+	app.SetParamStore(newParamStore(memdb.NewDB()))
+
+	app.InitChain(
+		abci.RequestInitChain{
+			InitialHeight: 3,
+		},
+	)
+
+	protocolVersion, err := app.GetAppVersion()
+	require.NoError(t, err)
+	require.Equal(t, expectedAppVersion, protocolVersion)
+
+	consensusParams := app.GetConsensusParams(app.checkState.ctx)
+
+	require.NotNil(t, consensusParams)
+	require.Equal(t, expectedAppVersion, consensusParams.Version.AppVersion)
+}
+
+func TestInitChain_NonZeroAppVersionInRequestPanic(t *testing.T) {
+	name := t.Name()
+	logger := defaultLogger()
+	app := NewBaseApp(name, logger, memdb.NewDB(), nil)
+
+	sut := func() {
+		app.InitChain(
+			abci.RequestInitChain{
+				InitialHeight: 3,
+				ConsensusParams: &tmproto.ConsensusParams{
+					Version: &tmproto.VersionParams{
+						AppVersion: 10,
+					},
+				},
+			},
+		)
+	}
+	require.Panics(t, sut)
 }
 
 func TestInitChain_WithInitialHeight(t *testing.T) {
@@ -1654,7 +1667,7 @@ func TestSnapshotWithPruning(t *testing.T) {
 				pruningOpts:        pruningtypes.NewPruningOptions(pruningtypes.PruningNothing),
 			},
 			expectedSnapshots: []*abci.Snapshot{
-				{Height: 20, Format: 2, Chunks: 5},
+				{Height: 20, Format: snapshottypes.CurrentFormat, Chunks: 5},
 			},
 		},
 		"prune everything with snapshot": {
@@ -1666,7 +1679,7 @@ func TestSnapshotWithPruning(t *testing.T) {
 				pruningOpts:        pruningtypes.NewPruningOptions(pruningtypes.PruningEverything),
 			},
 			expectedSnapshots: []*abci.Snapshot{
-				{Height: 20, Format: 2, Chunks: 5},
+				{Height: 20, Format: snapshottypes.CurrentFormat, Chunks: 5},
 			},
 		},
 		"default pruning with snapshot": {
@@ -1678,7 +1691,7 @@ func TestSnapshotWithPruning(t *testing.T) {
 				pruningOpts:        pruningtypes.NewPruningOptions(pruningtypes.PruningDefault),
 			},
 			expectedSnapshots: []*abci.Snapshot{
-				{Height: 20, Format: 2, Chunks: 5},
+				{Height: 20, Format: snapshottypes.CurrentFormat, Chunks: 5},
 			},
 		},
 		"custom": {
@@ -1690,8 +1703,8 @@ func TestSnapshotWithPruning(t *testing.T) {
 				pruningOpts:        pruningtypes.NewCustomPruningOptions(12, 12),
 			},
 			expectedSnapshots: []*abci.Snapshot{
-				{Height: 25, Format: 2, Chunks: 6},
-				{Height: 20, Format: 2, Chunks: 5},
+				{Height: 25, Format: snapshottypes.CurrentFormat, Chunks: 6},
+				{Height: 20, Format: snapshottypes.CurrentFormat, Chunks: 5},
 			},
 		},
 		"no snapshots": {
@@ -1712,9 +1725,9 @@ func TestSnapshotWithPruning(t *testing.T) {
 				pruningOpts:        pruningtypes.NewPruningOptions(pruningtypes.PruningNothing),
 			},
 			expectedSnapshots: []*abci.Snapshot{
-				{Height: 9, Format: 2, Chunks: 2},
-				{Height: 6, Format: 2, Chunks: 2},
-				{Height: 3, Format: 2, Chunks: 1},
+				{Height: 9, Format: snapshottypes.CurrentFormat, Chunks: 2},
+				{Height: 6, Format: snapshottypes.CurrentFormat, Chunks: 2},
+				{Height: 3, Format: snapshottypes.CurrentFormat, Chunks: 1},
 			},
 		},
 	}
@@ -2217,5 +2230,45 @@ func TestBaseApp_Init_PruningAndSnapshot(t *testing.T) {
 
 		require.Equal(t, tc.expectedSnapshot.Interval, tc.bapp.snapshotManager.GetInterval(), k)
 		require.Equal(t, tc.expectedSnapshot.KeepRecent, tc.bapp.snapshotManager.GetKeepRecent(), k)
+	}
+}
+
+func TestBaseApp_Init_AppVersion(t *testing.T) {
+	const versionNotSet = 0
+
+	testcases := []struct {
+		name            string
+		protocolVersion uint64
+	}{
+		{
+			name:            "no app version was set - set to 0",
+			protocolVersion: versionNotSet,
+		},
+		{
+			name:            "app version was set to 10 - 10 kept",
+			protocolVersion: 10,
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := memdb.NewDB()
+			app := newBaseAppWithDB(t.Name(), db)
+
+			if tc.protocolVersion != versionNotSet {
+				err := app.store.SetAppVersion(tc.protocolVersion)
+				require.NoError(t, err)
+			}
+			require.NoError(t, app.CloseStore())
+
+			// recreate app
+			app = newBaseAppWithDB(t.Name(), db)
+			require.NoError(t, app.Init())
+
+			actualProtocolVersion, err := app.GetAppVersion()
+			require.NoError(t, err)
+
+			require.Equal(t, tc.protocolVersion, actualProtocolVersion)
+		})
 	}
 }

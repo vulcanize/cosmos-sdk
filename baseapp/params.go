@@ -83,3 +83,14 @@ func ValidateValidatorParams(i interface{}) error {
 
 	return nil
 }
+
+// ValidateVersionParams defines a stateless validation on VersionParams. This
+// function is called whenever the parameters are updated or stored.
+func ValidateVersionParams(i interface{}) error {
+	_, ok := i.(tmproto.VersionParams)
+	if !ok {
+		return fmt.Errorf("invalid parameter type: %T", i)
+	}
+
+	return nil
+}

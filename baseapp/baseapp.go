@@ -19,6 +19,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/auth/migrations/legacytx"
+	upgrade "github.com/cosmos/cosmos-sdk/x/upgrade/exported"
 )
 
 const (
@@ -32,6 +33,7 @@ const (
 )
 
 var _ abci.Application = (*BaseApp)(nil)
+var _ upgrade.AppVersionManager = (*BaseApp)(nil)
 
 type (
 	// Enum mode for app.runTx
@@ -133,12 +135,8 @@ type BaseApp struct { // nolint: maligned
 	// ResponseCommit.RetainHeight.
 	minRetainBlocks uint64
 
-	// application's version string
+	// version represents the application software semantic version
 	version string
-
-	// application's protocol version that increments on every upgrade
-	// if BaseApp is passed to the upgrade keeper's NewKeeper method.
-	appVersion uint64
 
 	// recovery handler for app.runTx method
 	runTxRecoveryMiddleware recoveryMiddleware
@@ -209,11 +207,6 @@ func NewBaseApp(
 // Name returns the name of the BaseApp.
 func (app *BaseApp) Name() string {
 	return app.name
-}
-
-// AppVersion returns the application's protocol version.
-func (app *BaseApp) AppVersion() uint64 {
-	return app.appVersion
 }
 
 // Version returns the application's version string.
@@ -292,6 +285,15 @@ func (app *BaseApp) Init() error {
 
 	// needed for the export command which inits from store but never calls initchain
 	app.setCheckState(tmproto.Header{})
+
+	appVersion, err := app.GetAppVersion()
+	if err != nil {
+		return err
+	}
+
+	if err := app.SetAppVersion(appVersion); err != nil {
+		return err
+	}
 	app.Seal()
 	return app.store.GetPruning().Validate()
 }
@@ -398,6 +400,13 @@ func (app *BaseApp) GetConsensusParams(ctx sdk.Context) *tmproto.ConsensusParams
 		cp.Validator = &vp
 	}
 
+	appVersion, err := app.store.GetAppVersion()
+	if err != nil {
+		panic(err)
+	}
+	cp.Version = &tmproto.VersionParams{
+		AppVersion: appVersion,
+	}
 	return cp
 }
 
@@ -421,8 +430,11 @@ func (app *BaseApp) StoreConsensusParams(ctx sdk.Context, cp *tmproto.ConsensusP
 	app.paramStore.Set(ctx, ParamStoreKeyBlockParams, cp.Block)
 	app.paramStore.Set(ctx, ParamStoreKeyEvidenceParams, cp.Evidence)
 	app.paramStore.Set(ctx, ParamStoreKeyValidatorParams, cp.Validator)
-	// We're explicitly not storing the Tendermint app_version in the param store. It's
-	// stored instead in the x/upgrade store, with its own bump logic.
+	// We do not store version param here because it is
+	// persisted in the multi-store which is used as the single source of truth.
+	// The reason for storing the version in multi-store is to be able
+	// to serialize it for state-sync snapshots. The app version is then
+	// deserialized by the state-synching node to be validated in Tendermint.
 }
 
 // getMaximumBlockGas gets the maximum gas from the consensus params. It panics
