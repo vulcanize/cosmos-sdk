@@ -15,6 +15,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	dbm "github.com/cosmos/cosmos-sdk/db"
 	"github.com/cosmos/cosmos-sdk/db/memdb"
+	pruningtypes "github.com/cosmos/cosmos-sdk/pruning/types"
 	"github.com/cosmos/cosmos-sdk/server"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/cosmos/cosmos-sdk/store/v2alpha1/multi"
@@ -31,7 +32,7 @@ func defaultLogger() log.Logger {
 func initStore(t *testing.T, db dbm.DBConnection, config multi.StoreParams, key storetypes.StoreKey, k, v []byte) {
 	rs, err := multi.NewV1MultiStoreAsV2(db, config)
 	require.NoError(t, err)
-	rs.SetPruning(storetypes.PruneNothing)
+	rs.SetPruning(pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
 	require.Equal(t, int64(0), rs.LastCommitID().Version)
 
 	// write some data in substore
@@ -46,7 +47,7 @@ func initStore(t *testing.T, db dbm.DBConnection, config multi.StoreParams, key 
 func checkStore(t *testing.T, db dbm.DBConnection, config multi.StoreParams, ver int64, key storetypes.StoreKey, k, v []byte) {
 	rs, err := multi.NewV1MultiStoreAsV2(db, config)
 	require.NoError(t, err)
-	rs.SetPruning(storetypes.PruneNothing)
+	rs.SetPruning(pruningtypes.NewPruningOptions(pruningtypes.PruningNothing))
 	require.Equal(t, ver, rs.LastCommitID().Version)
 
 	if v != nil {
@@ -75,7 +76,7 @@ func TestSetLoader(t *testing.T) {
 	data, err := json.Marshal(upgradeInfo)
 	require.NoError(t, err)
 
-	err = os.WriteFile(upgradeInfoFilePath, data, 0644)
+	err = os.WriteFile(upgradeInfoFilePath, data, 0o644)
 	require.NoError(t, err)
 
 	// make sure it exists before running everything
@@ -123,10 +124,10 @@ func TestSetLoader(t *testing.T) {
 
 			// load the app with the existing db
 			opts := []baseapp.AppOption{
-				baseapp.SetPruning(storetypes.PruneNothing),
+				baseapp.SetPruning(pruningtypes.NewPruningOptions(pruningtypes.PruningNothing)),
 				baseapp.SetSubstores(tc.origStoreKey),
 			}
-			origapp := baseapp.NewBaseApp(t.Name(), defaultLogger(), db, opts...)
+			origapp := baseapp.NewBaseApp(t.Name(), defaultLogger(), db, nil, opts...)
 			require.NoError(t, origapp.Init())
 
 			for i := int64(2); i <= upgradeHeight-1; i++ {
@@ -138,13 +139,13 @@ func TestSetLoader(t *testing.T) {
 
 			// load the new app with the original app db
 			opts = []baseapp.AppOption{
-				baseapp.SetPruning(storetypes.PruneNothing),
+				baseapp.SetPruning(pruningtypes.NewPruningOptions(pruningtypes.PruningNothing)),
 				baseapp.SetSubstores(tc.loadStoreKey),
 			}
 			if tc.setLoader != nil {
 				opts = append(opts, tc.setLoader)
 			}
-			app := baseapp.NewBaseApp(t.Name(), defaultLogger(), db, opts...)
+			app := baseapp.NewBaseApp(t.Name(), defaultLogger(), db, nil, opts...)
 			require.NoError(t, app.Init())
 
 			// "execute" one block

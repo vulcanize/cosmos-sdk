@@ -13,6 +13,7 @@ import (
 	dbm "github.com/cosmos/cosmos-sdk/db"
 	prefixdb "github.com/cosmos/cosmos-sdk/db/prefix"
 	util "github.com/cosmos/cosmos-sdk/internal"
+	pruningtypes "github.com/cosmos/cosmos-sdk/pruning/types"
 	sdkmaps "github.com/cosmos/cosmos-sdk/store/internal/maps"
 	"github.com/cosmos/cosmos-sdk/store/listenkv"
 	"github.com/cosmos/cosmos-sdk/store/prefix"
@@ -56,7 +57,7 @@ func ErrStoreNotFound(key string) error {
 // StoreParams is used to define a schema and other options and pass them to the MultiStore constructor.
 type StoreParams struct {
 	// Version pruning options for backing DBs.
-	Pruning types.PruningOptions
+	Pruning pruningtypes.PruningOptions
 	// The minimum allowed version number.
 	InitialVersion uint64
 	// The optional backing DB to use for the state commitment Merkle tree data.
@@ -100,7 +101,7 @@ type Store struct {
 	mtx  sync.RWMutex
 
 	// Copied from StoreParams
-	Pruning        types.PruningOptions
+	Pruning        pruningtypes.PruningOptions
 	InitialVersion uint64
 	*traceListenMixin
 
@@ -141,15 +142,29 @@ func newSchemaBuilder() SchemaBuilder {
 // pruning with PruneDefault, no listeners and no tracer.
 func DefaultStoreParams() StoreParams {
 	return StoreParams{
-		Pruning:          types.PruneDefault,
+		Pruning:          pruningtypes.NewPruningOptions(pruningtypes.PruningDefault),
 		SchemaBuilder:    newSchemaBuilder(),
 		storeKeys:        storeKeys{},
 		traceListenMixin: newTraceListenMixin(),
 	}
 }
 
-// func (pr *SchemaBuilder) registerName(key string, typ types.StoreType) error {
 func (par *StoreParams) RegisterSubstore(skey types.StoreKey, typ types.StoreType) error {
+	if !validSubStoreType(typ) {
+		return fmt.Errorf("StoreType not supported: %v", typ)
+	}
+	var ok bool
+	switch typ {
+	case types.StoreTypePersistent:
+		_, ok = skey.(*types.KVStoreKey)
+	case types.StoreTypeMemory:
+		_, ok = skey.(*types.MemoryStoreKey)
+	case types.StoreTypeTransient:
+		_, ok = skey.(*types.TransientStoreKey)
+	}
+	if !ok {
+		return fmt.Errorf("invalid StoreKey for %v: %T", typ, skey)
+	}
 	if err := par.registerName(skey.Name(), typ); err != nil {
 		return err
 	}
@@ -180,12 +195,12 @@ func validSubStoreType(sst types.StoreType) bool {
 }
 
 // Returns true iff both schema maps match exactly (including mem/tran stores)
-func (this StoreSchema) equal(that StoreSchema) bool {
-	if len(this) != len(that) {
+func (ss StoreSchema) equal(that StoreSchema) bool {
+	if len(ss) != len(that) {
 		return false
 	}
 	for key, val := range that {
-		myval, has := this[key]
+		myval, has := ss[key]
 		if !has {
 			return false
 		}
@@ -269,7 +284,7 @@ func NewStore(db dbm.DBConnection, opts StoreParams) (ret *Store, err error) {
 		}
 		// Version sets of each DB must match
 		if !versions.Equal(scVersions) {
-			err = fmt.Errorf("Storage and StateCommitment DB have different version history") //nolint:stylecheck
+			err = fmt.Errorf("different version history between Storage and StateCommitment DB ")
 			return
 		}
 		err = opts.StateCommitmentDB.Revert()
@@ -542,24 +557,30 @@ func (s *Store) Commit() types.CommitID {
 		panic(err)
 	}
 
-	// Prune if necessary
-	previous := cid.Version - 1
-	if s.Pruning.Interval != 0 && cid.Version%int64(s.Pruning.Interval) == 0 {
-		// The range of newly prunable versions
-		lastPrunable := previous - int64(s.Pruning.KeepRecent)
-		firstPrunable := lastPrunable - int64(s.Pruning.Interval)
+	pruneVersions(cid.Version, s.Pruning, func(ver int64) {
+		s.stateDB.DeleteVersion(uint64(ver))
 
-		for version := firstPrunable; version <= lastPrunable; version++ {
-			s.stateDB.DeleteVersion(uint64(version))
-
-			if s.StateCommitmentDB != nil {
-				s.StateCommitmentDB.DeleteVersion(uint64(version))
-			}
+		if s.StateCommitmentDB != nil {
+			s.StateCommitmentDB.DeleteVersion(uint64(ver))
 		}
-	}
+	})
 
 	s.tran.Commit()
 	return *cid
+}
+
+// Performs necessary pruning via callback
+func pruneVersions(current int64, opts pruningtypes.PruningOptions, prune func(int64)) {
+	previous := current - 1
+	if opts.Interval != 0 && current%int64(opts.Interval) == 0 {
+		// The range of newly prunable versions
+		lastPrunable := previous - int64(opts.KeepRecent)
+		firstPrunable := lastPrunable - int64(opts.Interval)
+
+		for version := firstPrunable; version <= lastPrunable; version++ {
+			prune(version)
+		}
+	}
 }
 
 func (s *Store) getMerkleRoots() (ret map[string][]byte, err error) {
@@ -702,6 +723,20 @@ func (rs *Store) GetAllVersions() []uint64 {
 	return ret
 }
 
+// PruneSnapshotHeight prunes the given height according to the prune strategy.
+// If PruneNothing, this is a no-op.
+// If other strategy, this height is persisted until it is
+// less than <current height> - KeepRecent and <current height> % Interval == 0
+func (rs *Store) PruneSnapshotHeight(height int64) {
+	panic("not implemented")
+}
+
+// SetSnapshotInterval sets the interval at which the snapshots are taken.
+// It is used by the store to determine which heights to retain until after the snapshot is complete.
+func (rs *Store) SetSnapshotInterval(snapshotInterval uint64) {
+	panic("not implemented")
+}
+
 // parsePath expects a format like /<storeName>[/<subpath>]
 // Must start with /, subpath may be empty
 // Returns error if it doesn't start with /
@@ -779,7 +814,7 @@ func (rs *Store) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
 		// TODO: actual IBC compatible proof. This is a placeholder so unit tests can pass
 		res.ProofOps, err = substore.GetProof(res.Key)
 		if err != nil {
-			return sdkerrors.QueryResult(fmt.Errorf("Merkle proof creation failed for key: %v", res.Key), false) //nolint: stylecheck // proper name
+			return sdkerrors.QueryResult(fmt.Errorf("merkle proof creation failed for key: %v", res.Key), false)
 		}
 
 	case "/subspace":
@@ -887,10 +922,6 @@ func (reg *SchemaBuilder) storeInfo(key string) (sst types.StoreType, ix int, er
 
 // registerName registers a store key by name only
 func (reg *SchemaBuilder) registerName(key string, typ types.StoreType) error {
-	if !validSubStoreType(typ) {
-		return fmt.Errorf("StoreType not supported: %v", typ)
-	}
-
 	// Find the neighboring reserved prefix, and check for duplicates and conflicts
 	i, has := binarySearch(reg.reserved, key)
 	if has {
@@ -924,6 +955,7 @@ func (tlm *traceListenMixin) ListeningEnabled(key types.StoreKey) bool {
 func (tlm *traceListenMixin) TracingEnabled() bool {
 	return tlm.TraceWriter != nil
 }
+
 func (tlm *traceListenMixin) SetTracer(w io.Writer) {
 	tlm.TraceWriter = w
 }
@@ -964,5 +996,5 @@ func (tlm *traceListenMixin) wrapTraceListen(store types.KVStore, skey types.Sto
 	return store
 }
 
-func (s *Store) GetPruning() types.PruningOptions   { return s.Pruning }
-func (s *Store) SetPruning(po types.PruningOptions) { s.Pruning = po }
+func (s *Store) GetPruning() pruningtypes.PruningOptions   { return s.Pruning }
+func (s *Store) SetPruning(po pruningtypes.PruningOptions) { s.Pruning = po }
