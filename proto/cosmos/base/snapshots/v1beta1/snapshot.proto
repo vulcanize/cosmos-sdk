@@ -45,7 +45,7 @@ message SnapshotStoreItem {
 //
 // Since: cosmos-sdk 0.46
 message SnapshotIAVLItem {
-  bytes key = 1;
+  bytes key   = 1;
   bytes value = 2;
   // version is block height
   int64 version = 3;
