@@ -117,9 +117,8 @@ type Address interface {
 }
 
 // Ensure that different address types implement the interface
-var _ Address = AccAddress{}
-
 var (
+	_ Address = AccAddress{}
 	_ Address = ValAddress{}
 	_ Address = ConsAddress{}
 )
@@ -162,6 +161,16 @@ func VerifyAddressFormat(bz []byte) error {
 	}
 
 	return nil
+}
+
+// MustAccAddressFromBech32 calls AccAddressFromBech32 and panics on error.
+func MustAccAddressFromBech32(address string) AccAddress {
+	addr, err := AccAddressFromBech32(address)
+	if err != nil {
+		panic(err)
+	}
+
+	return addr
 }
 
 // AccAddressFromBech32 creates an AccAddress from a Bech32 string.
