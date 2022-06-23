@@ -2064,11 +2064,11 @@ func TestBaseApp_Init_PruningAndSnapshot(t *testing.T) {
 		expectedErr          error
 		isSnapshotManagerNil bool
 	}{
-		"snapshot but no pruning": {
+		"snapshot but pruning unset": {
 			NewBaseApp(name, logger, db, nil,
 				SetSnapshot(snapshotStore, snapshottypes.NewSnapshotOptions(1500, 2)),
 			),
-			pruningtypes.NewPruningOptions(pruningtypes.PruningNothing),
+			pruningtypes.NewPruningOptions(pruningtypes.PruningDefault),
 			snapshottypes.NewSnapshotOptions(1500, 2),
 			// if no pruning is set, the default is PruneNothing
 			nil,
