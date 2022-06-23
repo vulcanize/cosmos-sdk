@@ -552,7 +552,7 @@ func TestMultiStore_Pruning_SameHeightsTwice(t *testing.T) {
 	require.NoError(t, err)
 
 	// Ensure already pruned heights were loaded
-	heights, err := ms.pruningManager.GetFlushAndResetPruningHeights()
+	heights, err := ms.pruningManager.GetFlushAndResetPruningHeights(ms.db)
 	require.NoError(t, err)
 	require.Equal(t, expectedHeights, heights)
 
@@ -585,7 +585,7 @@ func TestMultiStore_PruningRestart(t *testing.T) {
 	err := ms.pruningManager.LoadPruningHeights(ms.db)
 	require.NoError(t, err)
 
-	actualHeightsToPrune, err := ms.pruningManager.GetFlushAndResetPruningHeights()
+	actualHeightsToPrune, err := ms.pruningManager.GetFlushAndResetPruningHeights(ms.db)
 	require.NoError(t, err)
 	require.Equal(t, len(pruneHeights), len(actualHeightsToPrune))
 	require.Equal(t, pruneHeights, actualHeightsToPrune)
@@ -596,14 +596,14 @@ func TestMultiStore_PruningRestart(t *testing.T) {
 	err = ms.LoadLatestVersion()
 	require.NoError(t, err)
 
-	actualHeightsToPrune, err = ms.pruningManager.GetFlushAndResetPruningHeights()
+	actualHeightsToPrune, err = ms.pruningManager.GetFlushAndResetPruningHeights(ms.db)
 	require.NoError(t, err)
 	require.Equal(t, pruneHeights, actualHeightsToPrune)
 
 	// commit one more block and ensure the heights have been pruned
 	ms.Commit()
 
-	actualHeightsToPrune, err = ms.pruningManager.GetFlushAndResetPruningHeights()
+	actualHeightsToPrune, err = ms.pruningManager.GetFlushAndResetPruningHeights(ms.db)
 	require.NoError(t, err)
 	require.Empty(t, actualHeightsToPrune)
 
