@@ -28,7 +28,6 @@ import (
 	simappparams "github.com/cosmos/cosmos-sdk/simapp/params"
 	"github.com/cosmos/cosmos-sdk/store/streaming"
 	storetypes "github.com/cosmos/cosmos-sdk/store/v2alpha1"
-	"github.com/cosmos/cosmos-sdk/store/v2alpha1/multi"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata_pulsar"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
@@ -230,38 +229,7 @@ func NewSimApp(
 	// NOTE: The testingkey is just mounted for testing purposes. Actual applications should
 	// not include this key.
 	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, "testingkey")
-	// initialize stores
-	setNamespaces := func(config *multi.StoreParams, ver uint64) error {
-		for _, key := range keys {
-			typ, err := storetypes.StoreKeyToType(key)
-			if err != nil {
-				return err
-			}
-			if err = config.RegisterSubstore(key, typ); err != nil {
-				return err
-			}
-		}
-		for _, key := range memKeys {
-			typ, err := storetypes.StoreKeyToType(key)
-			if err != nil {
-				return err
-			}
-			if err = config.RegisterSubstore(key, typ); err != nil {
-				return err
-			}
-		}
-		for _, key := range tkeys {
-			typ, err := storetypes.StoreKeyToType(key)
-			if err != nil {
-				return err
-			}
-			if err = config.RegisterSubstore(key, typ); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	baseAppOptions = append(baseAppOptions, baseapp.StoreOption(setNamespaces))
+	baseAppOptions = append(baseAppOptions, baseapp.SetSubstoresFromMaps(keys, tkeys, memKeys))
 
 	// set the governance module account as the authority for conducting upgrades
 	upgradeKeeper := upgradekeeper.NewKeeper(skipUpgradeHeights, keys[upgradetypes.StoreKey], appCodec, homePath, nil, authtypes.NewModuleAddress(govtypes.ModuleName).String())
@@ -568,7 +536,6 @@ func (app *SimApp) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.
 
 // LoadHeight loads a particular height
 func (app *SimApp) LoadHeight(height int64) error {
-	// return app.LoadVersion(height)
 	return errors.New("cannot load arbitrary height")
 }
 
