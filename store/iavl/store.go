@@ -379,12 +379,3 @@ func getProofFromTree(tree *iavl.MutableTree, key []byte, exists bool) *tmcrypto
 	op := types.NewIavlCommitmentOp(key, commitmentProof)
 	return &tmcrypto.ProofOps{Ops: []tmcrypto.ProofOp{op.ProofOp()}}
 }
-
-//----------------------------------------
-
-// iavlIterator implements types.Iterator.
-type iavlIterator struct {
-	dbm.Iterator
-}
-
-var _ types.Iterator = (*iavlIterator)(nil)

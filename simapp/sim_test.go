@@ -46,7 +46,7 @@ type StoreKeysPrefixes struct {
 }
 
 // fauxMerkleModeOpt returns a BaseApp option to use a dbStoreAdapter instead of
-// an IAVLStore for faster simulation speed.
+// a Merkle tree store for faster simulation speed.
 var fauxMerkleModeOpt = baseapp.AppOptionFunc(func(bapp *baseapp.BaseApp) {
 	bapp.SetFauxMerkleMode()
 })
