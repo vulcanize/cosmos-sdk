@@ -6,8 +6,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/cosmos/cosmos-sdk/db"
 	dbutil "github.com/cosmos/cosmos-sdk/db/internal"
+	"github.com/cosmos/cosmos-sdk/db/types"
 	"github.com/google/btree"
 )
 
@@ -15,13 +15,6 @@ const (
 	// The approximate number of items and children per B-tree node. Tuned with benchmarks.
 	bTreeDegree = 32
 )
-
-func init() {
-	creator := func(name string, dir string) (db.DBConnection, error) {
-		return NewDB(), nil
-	}
-	db.RegisterCreator(db.MemDBBackend, creator, false)
-}
 
 // MemDB is an in-memory database backend using a B-tree for storage.
 //
@@ -39,7 +32,7 @@ type MemDB struct {
 	btree       *btree.BTree            // Main contents
 	mtx         sync.RWMutex            // Guards version history
 	saved       map[uint64]*btree.BTree // Past versions
-	vmgr        *db.VersionManager      // Mirrors version keys
+	vmgr        *types.VersionManager   // Mirrors version keys
 	openWriters int32                   // Open writers
 }
 
@@ -50,10 +43,10 @@ type dbTxn struct {
 type dbWriter struct{ dbTxn }
 
 var (
-	_ db.DBConnection = (*MemDB)(nil)
-	_ db.DBReader     = (*dbTxn)(nil)
-	_ db.DBWriter     = (*dbWriter)(nil)
-	_ db.DBReadWriter = (*dbWriter)(nil)
+	_ types.DBConnection = (*MemDB)(nil)
+	_ types.DBReader     = (*dbTxn)(nil)
+	_ types.DBWriter     = (*dbWriter)(nil)
+	_ types.DBReadWriter = (*dbWriter)(nil)
 )
 
 // item is a btree.Item with byte slices as keys and values
@@ -67,7 +60,7 @@ func NewDB() *MemDB {
 	return &MemDB{
 		btree: btree.New(bTreeDegree),
 		saved: make(map[uint64]*btree.BTree),
-		vmgr:  db.NewVersionManager(nil),
+		vmgr:  types.NewVersionManager(nil),
 	}
 }
 
@@ -75,7 +68,7 @@ func (dbm *MemDB) newTxn(tree *btree.BTree) dbTxn {
 	return dbTxn{tree, dbm}
 }
 
-// Close implements DB.
+// Close implements DBConnection.
 // Close is a noop since for an in-memory database, we don't have a destination to flush
 // contents to nor do we want any data loss on invoking Close().
 // See the discussion in https://github.com/tendermint/tendermint/libs/pull/56
@@ -84,14 +77,14 @@ func (dbm *MemDB) Close() error {
 }
 
 // Versions implements DBConnection.
-func (dbm *MemDB) Versions() (db.VersionSet, error) {
+func (dbm *MemDB) Versions() (types.VersionSet, error) {
 	dbm.mtx.RLock()
 	defer dbm.mtx.RUnlock()
 	return dbm.vmgr, nil
 }
 
 // Reader implements DBConnection.
-func (dbm *MemDB) Reader() db.DBReader {
+func (dbm *MemDB) Reader() types.DBReader {
 	dbm.mtx.RLock()
 	defer dbm.mtx.RUnlock()
 	ret := dbm.newTxn(dbm.btree)
@@ -99,24 +92,24 @@ func (dbm *MemDB) Reader() db.DBReader {
 }
 
 // ReaderAt implements DBConnection.
-func (dbm *MemDB) ReaderAt(version uint64) (db.DBReader, error) {
+func (dbm *MemDB) ReaderAt(version uint64) (types.DBReader, error) {
 	dbm.mtx.RLock()
 	defer dbm.mtx.RUnlock()
 	tree, ok := dbm.saved[version]
 	if !ok {
-		return nil, db.ErrVersionDoesNotExist
+		return nil, types.ErrVersionDoesNotExist
 	}
 	ret := dbm.newTxn(tree)
 	return &ret, nil
 }
 
 // Writer implements DBConnection.
-func (dbm *MemDB) Writer() db.DBWriter {
+func (dbm *MemDB) Writer() types.DBWriter {
 	return dbm.ReadWriter()
 }
 
 // ReadWriter implements DBConnection.
-func (dbm *MemDB) ReadWriter() db.DBReadWriter {
+func (dbm *MemDB) ReadWriter() types.DBReadWriter {
 	dbm.mtx.RLock()
 	defer dbm.mtx.RUnlock()
 	atomic.AddInt32(&dbm.openWriters, 1)
@@ -128,7 +121,7 @@ func (dbm *MemDB) save(target uint64) (uint64, error) {
 	dbm.mtx.Lock()
 	defer dbm.mtx.Unlock()
 	if dbm.openWriters > 0 {
-		return 0, db.ErrOpenTransactions
+		return 0, types.ErrOpenTransactions
 	}
 
 	newVmgr := dbm.vmgr.Copy()
@@ -149,7 +142,7 @@ func (dbm *MemDB) SaveNextVersion() (uint64, error) {
 // SaveNextVersion implements DBConnection.
 func (dbm *MemDB) SaveVersion(target uint64) error {
 	if target == 0 {
-		return db.ErrInvalidVersion
+		return types.ErrInvalidVersion
 	}
 	_, err := dbm.save(target)
 	return err
@@ -160,7 +153,7 @@ func (dbm *MemDB) DeleteVersion(target uint64) error {
 	dbm.mtx.Lock()
 	defer dbm.mtx.Unlock()
 	if _, has := dbm.saved[target]; !has {
-		return db.ErrVersionDoesNotExist
+		return types.ErrVersionDoesNotExist
 	}
 	delete(dbm.saved, target)
 	dbm.vmgr = dbm.vmgr.Copy()
@@ -172,7 +165,7 @@ func (dbm *MemDB) Revert() error {
 	dbm.mtx.RLock()
 	defer dbm.mtx.RUnlock()
 	if dbm.openWriters > 0 {
-		return db.ErrOpenTransactions
+		return types.ErrOpenTransactions
 	}
 	last := dbm.vmgr.Last()
 	if last == 0 {
@@ -186,10 +179,10 @@ func (dbm *MemDB) RevertTo(target uint64) error {
 	dbm.mtx.RLock()
 	defer dbm.mtx.RUnlock()
 	if dbm.openWriters > 0 {
-		return db.ErrOpenTransactions
+		return types.ErrOpenTransactions
 	}
 	if !dbm.vmgr.Exists(target) {
-		return db.ErrVersionDoesNotExist
+		return types.ErrVersionDoesNotExist
 	}
 	err := dbm.revert(target)
 	if err != nil {
@@ -215,10 +208,10 @@ func (dbm *MemDB) revert(target uint64) error {
 // Get implements DBReader.
 func (tx *dbTxn) Get(key []byte) ([]byte, error) {
 	if tx.btree == nil {
-		return nil, db.ErrTransactionClosed
+		return nil, types.ErrTransactionClosed
 	}
 	if len(key) == 0 {
-		return nil, db.ErrKeyEmpty
+		return nil, types.ErrKeyEmpty
 	}
 	i := tx.btree.Get(newKey(key))
 	if i != nil {
@@ -230,10 +223,10 @@ func (tx *dbTxn) Get(key []byte) ([]byte, error) {
 // Has implements DBReader.
 func (tx *dbTxn) Has(key []byte) (bool, error) {
 	if tx.btree == nil {
-		return false, db.ErrTransactionClosed
+		return false, types.ErrTransactionClosed
 	}
 	if len(key) == 0 {
-		return false, db.ErrKeyEmpty
+		return false, types.ErrKeyEmpty
 	}
 	return tx.btree.Has(newKey(key)), nil
 }
@@ -241,7 +234,7 @@ func (tx *dbTxn) Has(key []byte) (bool, error) {
 // Set implements DBWriter.
 func (tx *dbWriter) Set(key []byte, value []byte) error {
 	if tx.btree == nil {
-		return db.ErrTransactionClosed
+		return types.ErrTransactionClosed
 	}
 	if err := dbutil.ValidateKv(key, value); err != nil {
 		return err
@@ -253,10 +246,10 @@ func (tx *dbWriter) Set(key []byte, value []byte) error {
 // Delete implements DBWriter.
 func (tx *dbWriter) Delete(key []byte) error {
 	if tx.btree == nil {
-		return db.ErrTransactionClosed
+		return types.ErrTransactionClosed
 	}
 	if len(key) == 0 {
-		return db.ErrKeyEmpty
+		return types.ErrKeyEmpty
 	}
 	tx.btree.Delete(newKey(key))
 	return nil
@@ -264,24 +257,24 @@ func (tx *dbWriter) Delete(key []byte) error {
 
 // Iterator implements DBReader.
 // Takes out a read-lock on the database until the iterator is closed.
-func (tx *dbTxn) Iterator(start, end []byte) (db.Iterator, error) {
+func (tx *dbTxn) Iterator(start, end []byte) (types.Iterator, error) {
 	if tx.btree == nil {
-		return nil, db.ErrTransactionClosed
+		return nil, types.ErrTransactionClosed
 	}
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
-		return nil, db.ErrKeyEmpty
+		return nil, types.ErrKeyEmpty
 	}
 	return newMemDBIterator(tx, start, end, false), nil
 }
 
 // ReverseIterator implements DBReader.
 // Takes out a read-lock on the database until the iterator is closed.
-func (tx *dbTxn) ReverseIterator(start, end []byte) (db.Iterator, error) {
+func (tx *dbTxn) ReverseIterator(start, end []byte) (types.Iterator, error) {
 	if tx.btree == nil {
-		return nil, db.ErrTransactionClosed
+		return nil, types.ErrTransactionClosed
 	}
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
-		return nil, db.ErrKeyEmpty
+		return nil, types.ErrKeyEmpty
 	}
 	return newMemDBIterator(tx, start, end, true), nil
 }
@@ -289,7 +282,7 @@ func (tx *dbTxn) ReverseIterator(start, end []byte) (db.Iterator, error) {
 // Commit implements DBWriter.
 func (tx *dbWriter) Commit() error {
 	if tx.btree == nil {
-		return db.ErrTransactionClosed
+		return types.ErrTransactionClosed
 	}
 	tx.db.mtx.Lock()
 	defer tx.db.mtx.Unlock()
