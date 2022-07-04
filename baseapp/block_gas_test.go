@@ -67,7 +67,7 @@ func TestBaseApp_BlockGas(t *testing.T) {
 				&testdata.TestMsg{},
 			)
 			app = simapp.NewSimApp(log.NewNopLogger(), memdb.NewDB(), nil, true, map[int64]bool{}, "", 0, encCfg, simapp.EmptyAppOptions{}, baseapp.AppOptionFunc(routerOpt))
-			genState := simapp.GenesisStateWithSingleValidator(t, app)
+			genState := simapp.NewGenesisStateWithSingleValidator(t, app)
 			stateBytes, err := tmjson.MarshalIndent(genState, "", " ")
 			require.NoError(t, err)
 			app.InitChain(abci.RequestInitChain{

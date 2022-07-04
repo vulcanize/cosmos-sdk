@@ -20,7 +20,7 @@ func TestItCreatesModuleAccountOnInitBlock(t *testing.T) {
 	encCdc := simapp.MakeTestEncodingConfig()
 	app := simapp.NewSimApp(log.NewNopLogger(), db, nil, true, map[int64]bool{}, simapp.DefaultNodeHome, 5, encCdc, simapp.EmptyAppOptions{})
 
-	genesisState := simapp.GenesisStateWithSingleValidator(t, app)
+	genesisState := simapp.NewGenesisStateWithSingleValidator(t, app)
 	stateBytes, err := tmjson.Marshal(genesisState)
 	require.NoError(t, err)
 

@@ -19,6 +19,7 @@ import (
 
 	bam "github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
@@ -101,7 +102,7 @@ func NewSimappWithCustomOptions(t *testing.T, isCheckTx bool, options SetupOptio
 	app := NewSimApp(options.Logger, options.DB, nil, true, options.SkipUpgradeHeights, options.HomePath, options.InvCheckPeriod, options.EncConfig, options.AppOpts)
 	require.NoError(t, app.Init())
 	genesisState := NewDefaultGenesisState(app.appCodec)
-	genesisState = genesisStateWithValSet(t, app, genesisState, valSet, []authtypes.GenesisAccount{acc}, balance)
+	genesisState = GenesisStateWithValSet(t, app.appCodec, genesisState, valSet, []authtypes.GenesisAccount{acc}, balance)
 
 	if !isCheckTx {
 		// init chain must be called to stop deliverState from being nil
@@ -146,14 +147,14 @@ func Setup(t *testing.T, isCheckTx bool) *SimApp {
 	return app
 }
 
-func genesisStateWithValSet(t *testing.T,
-	app *SimApp, genesisState GenesisState,
+func GenesisStateWithValSet(t testing.TB,
+	appCodec codec.Codec, genesisState GenesisState,
 	valSet *tmtypes.ValidatorSet, genAccs []authtypes.GenesisAccount,
 	balances ...banktypes.Balance,
 ) GenesisState {
 	// set genesis accounts
 	authGenesis := authtypes.NewGenesisState(authtypes.DefaultParams(), genAccs)
-	genesisState[authtypes.ModuleName] = app.AppCodec().MustMarshalJSON(authGenesis)
+	genesisState[authtypes.ModuleName] = appCodec.MustMarshalJSON(authGenesis)
 
 	validators := make([]stakingtypes.Validator, 0, len(valSet.Validators))
 	delegations := make([]stakingtypes.Delegation, 0, len(valSet.Validators))
@@ -184,7 +185,7 @@ func genesisStateWithValSet(t *testing.T,
 	}
 	// set validators and delegations
 	stakingGenesis := stakingtypes.NewGenesisState(stakingtypes.DefaultParams(), validators, delegations)
-	genesisState[stakingtypes.ModuleName] = app.AppCodec().MustMarshalJSON(stakingGenesis)
+	genesisState[stakingtypes.ModuleName] = appCodec.MustMarshalJSON(stakingGenesis)
 
 	totalSupply := sdk.NewCoins()
 	for _, b := range balances {
@@ -205,7 +206,7 @@ func genesisStateWithValSet(t *testing.T,
 
 	// update total supply
 	bankGenesis := banktypes.NewGenesisState(banktypes.DefaultGenesisState().Params, balances, totalSupply, []banktypes.Metadata{}, []banktypes.GenesisSupplyOffset{})
-	genesisState[banktypes.ModuleName] = app.AppCodec().MustMarshalJSON(bankGenesis)
+	genesisState[banktypes.ModuleName] = appCodec.MustMarshalJSON(bankGenesis)
 
 	return genesisState
 }
@@ -218,7 +219,7 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 	t.Helper()
 
 	app, genesisState := setup(true, 5)
-	genesisState = genesisStateWithValSet(t, app, genesisState, valSet, genAccs, balances...)
+	genesisState = GenesisStateWithValSet(t, app.AppCodec(), genesisState, valSet, genAccs, balances...)
 
 	stateBytes, err := json.MarshalIndent(genesisState, "", " ")
 	require.NoError(t, err)
@@ -262,7 +263,7 @@ func SetupWithGenesisAccounts(t *testing.T, genAccs []authtypes.GenesisAccount, 
 
 // GenesisStateWithSingleValidator initializes GenesisState with a single validator and genesis accounts
 // that also act as delegators.
-func GenesisStateWithSingleValidator(t *testing.T, app *SimApp) GenesisState {
+func GenesisStateWithSingleValidator(t *testing.T, appCodec codec.Codec, genesisState GenesisState) GenesisState {
 	t.Helper()
 
 	privVal := mock.NewPV()
@@ -283,10 +284,16 @@ func GenesisStateWithSingleValidator(t *testing.T, app *SimApp) GenesisState {
 		},
 	}
 
-	genesisState := NewDefaultGenesisState(app.appCodec)
-	genesisState = genesisStateWithValSet(t, app, genesisState, valSet, []authtypes.GenesisAccount{acc}, balances...)
+	genesisState = GenesisStateWithValSet(t, appCodec, genesisState, valSet, []authtypes.GenesisAccount{acc}, balances...)
 
 	return genesisState
+}
+
+// GenesisStateWithSingleValidator initializes GenesisState with a single validator and genesis accounts
+// that also act as delegators.
+func NewGenesisStateWithSingleValidator(t *testing.T, app *SimApp) GenesisState {
+	t.Helper()
+	return GenesisStateWithSingleValidator(t, app.AppCodec(), NewDefaultGenesisState(app.AppCodec()))
 }
 
 type GenerateAccountStrategy func(int) []sdk.AccAddress

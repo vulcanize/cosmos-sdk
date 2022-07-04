@@ -131,7 +131,7 @@ func setupApp(t *testing.T, tempDir string) (*simapp.SimApp, context.Context, *t
 	encCfg := simapp.MakeTestEncodingConfig()
 	app := simapp.NewSimApp(logger, db, nil, true, map[int64]bool{}, tempDir, 0, encCfg, simapp.EmptyAppOptions{})
 
-	genesisState := simapp.GenesisStateWithSingleValidator(t, app)
+	genesisState := simapp.NewGenesisStateWithSingleValidator(t, app)
 	stateBytes, err := tmjson.MarshalIndent(genesisState, "", " ")
 	require.NoError(t, err)
 
