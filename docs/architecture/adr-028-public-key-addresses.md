@@ -2,8 +2,8 @@
 
 ## Changelog
 
-- 2020/08/18: Initial version
-- 2021/01/15: Analysis and algorithm update
+* 2020/08/18: Initial version
+* 2021/01/15: Analysis and algorithm update
 
 ## Status
 
@@ -21,12 +21,12 @@ address spaces are currently overlapping. We confirmed that it significantly dec
 ### Problem
 
 An attacker can control an input for an address generation function. This leads to a birthday attack, which significantly decreases the security space.
-To overcome this, we need to separate the inputs for different kind of account types:
+To overcome this, we need to separate the inputs for different kinds of account types:
 a security break of one account type shouldn't impact the security of other account types.
 
 ### Initial proposals
 
-One initial proposal was extending the address length and
+One initial proposal was to extend the address length and
 adding prefixes for different types of addresses.
 
 @ethanfrey explained an alternate approach originally used in https://github.com/iov-one/weave:
@@ -38,7 +38,7 @@ adding prefixes for different types of addresses.
 
 And explained how this approach should be sufficiently collision resistant:
 
-> Yeah, AFAIK, 20 bytes should be collision resistance when the preimages are unique and not malleable. A space of 2^160 would expect some collision to be likely around 2^80 elements (birthday paradox). And if you want to find a collision for some existing element in the database, it is still 2^160. 2^80 only is if all these elements are written to state.
+> Yeah, AFAIK, 20 bytes should be collision resistance when the preimages are unique and not malleable. A space of 2^160 would expect some collision to be likely around 2^80 elements (birthday paradox). And if you want to find a collision for some existing element in the database, it is still 2^160. 2^80 only if all these elements are written to state.
 > The good example you brought up was eg. a public key bytes being a valid public key on two algorithms supported by the codec. Meaning if either was broken, you would break accounts even if they were secured with the safer variant. This is only as the issue when no differentiating type info is present in the preimage (before hashing into an address).
 > I would like to hear an argument if the 20 bytes space is an actual issue for security, as I would be happy to increase my address sizes in weave. I just figured cosmos and ethereum and bitcoin all use 20 bytes, it should be good enough. And the arguments above which made me feel it was secure. But I have not done a deeper analysis.
 
@@ -53,15 +53,15 @@ This disqualifies the initial proposal.
 
 In the issue we discussed various modifications:
 
-+ Choice of the hash function.
-+ Move the prefix out of the hash function: `keyTypePrefix + sha256(keybytes)[:20]` [post-hash-prefix-proposal].
-+ Use double hashing: `sha256(keyTypePrefix + sha256(keybytes)[:20])`.
-+ Increase to keybytes hash slice from 20 byte to 32 or 40 bytes. We concluded that 32 bytes, produced by a good hash functions is future secure.
+* Choice of the hash function.
+* Move the prefix out of the hash function: `keyTypePrefix + sha256(keybytes)[:20]` [post-hash-prefix-proposal].
+* Use double hashing: `sha256(keyTypePrefix + sha256(keybytes)[:20])`.
+* Increase to keybytes hash slice from 20 bytes to 32 or 40 bytes. We concluded that 32 bytes, produced by a good hash functions is future secure.
 
 ### Requirements
 
-+ Support currently used tools - we don't want to break an ecosystem, or add a long adaptation period. Ref: https://github.com/cosmos/cosmos-sdk/issues/8041
-+ Try to keep the address length small - addresses are widely used in state, both as part of a key and object value.
+* Support currently used tools - we don't want to break an ecosystem, or add a long adaptation period. Ref: https://github.com/cosmos/cosmos-sdk/issues/8041
+* Try to keep the address length small - addresses are widely used in state, both as part of a key and object value.
 
 ### Scope
 
@@ -82,8 +82,8 @@ We define the following account types, for which we define the address function:
 Currently (Jan 2021), the only officially supported Cosmos SDK user accounts are `secp256k1` basic accounts and legacy amino multisig.
 They are used in existing Cosmos SDK zones. They use the following address formats:
 
-- secp256k1: `ripemd160(sha256(pk_bytes))[:20]`
-- legacy amino multisig: `sha256(aminoCdc.Marshal(pk))[:20]`
+* secp256k1: `ripemd160(sha256(pk_bytes))[:20]`
+* legacy amino multisig: `sha256(aminoCdc.Marshal(pk))[:20]`
 
 We don't want to change existing addresses. So the addresses for these two key types will remain the same.
 
@@ -97,7 +97,7 @@ As in other parts of the Cosmos SDK, we will use `sha256`.
 
 ### Basic Address
 
-We start with defining a base hash algorithm for generating addresses. Notably, it's used for accounts represented by a single key pair. For each public key schema we have to have an associated `typ` string, which we discuss in a section below. `hash` is the cryptographic hash function defined in the previous section.
+We start by defining a base algorithm for generating addresses which we will call `Hash`. Notably, it's used for accounts represented by a single key pair. For each public key schema we have to have an associated `typ` string, explained in the next section. `hash` is the cryptographic hash function defined in the previous section.
 
 ```go
 const A_LEN = 32
@@ -114,16 +114,13 @@ Motivation: this algorithm keeps the address relatively small (length of the `ty
 and it's more secure than [post-hash-prefix-proposal] (which uses the first 20 bytes of a pubkey hash, significantly reducing the address space).
 Moreover the cryptographer motivated the choice of adding `typ` in the hash to protect against a switch table attack.
 
-We use the `address.Hash` function for generating addresses for all accounts represented by a single key:
+`address.Hash` is a low level function to generate _base_ addresses for new key types. Example:
 
-* simple public keys: `address.Hash(keyType, pubkey)`
-
-+ aggregated keys (eg: BLS): `address.Hash(keyType, aggregatedPubKey)`
-+ modules: `address.Hash("module", moduleName)`
+* BLS: `address.Hash("bls", pubkey)`
 
 ### Composed Addresses
 
-For simple composed accounts (like new naive multisig), we generalize the `address.Hash`. The address is constructed by recursively creating addresses for the sub accounts, sorting the addresses and composing them into a single address. It ensures that the ordering of keys doesn't impact the resulting address.
+For simple composed accounts (like a new naive multisig) we generalize the `address.Hash`. The address is constructed by recursively creating addresses for the sub accounts, sorting the addresses and composing them into a single address. It ensures that the ordering of keys doesn't impact the resulting address.
 
 ```go
 // We don't need a PubKey interface - we need anything which is addressable.
@@ -140,17 +137,17 @@ func Composed(typ string, subaccounts []Addressable) []byte {
 
 The `typ` parameter should be a schema descriptor, containing all significant attributes with deterministic serialization (eg: utf8 string).
 `LengthPrefix` is a function which prepends 1 byte to the address. The value of that byte is the length of the address bits before prepending. The address must be at most 255 bits long.
-We are using `LengthPrefix` to eliminate conflicts - it assures, that for 2 lists of addresses: `as = {a1, a2, ..., an}` and `bs = {b1, b2, ..., bm}` such that every `bi` and `ai` is at most 255 long, `concatenate(map(as, \a -> LengthPrefix(a))) = map(bs, \b -> LengthPrefix(b))` iff `as = bs`.
+We are using `LengthPrefix` to eliminate conflicts - it assures, that for 2 lists of addresses: `as = {a1, a2, ..., an}` and `bs = {b1, b2, ..., bm}` such that every `bi` and `ai` is at most 255 long, `concatenate(map(as, (a) => LengthPrefix(a))) = map(bs, (b) => LengthPrefix(b))` if `as = bs`.
 
 Implementation Tip: account implementations should cache addresses.
 
 #### Multisig Addresses
 
-For new multisig public keys, we define the `typ` parameter not based on any encoding scheme (amino or protobuf). This avoids issues with non-determinism in the encoding scheme.
+For a new multisig public keys, we define the `typ` parameter not based on any encoding scheme (amino or protobuf). This avoids issues with non-determinism in the encoding scheme.
 
 Example:
 
-```proto
+```protobuf
 package cosmos.crypto.multisig;
 
 message PubKey {
@@ -161,67 +158,83 @@ message PubKey {
 
 ```go
 func (multisig PubKey) Address() {
-  // first gather all nested pub keys
-  var keys []address.Addressable  // cryptotypes.PubKey implements Addressable
-  for _, _key := range multisig.Pubkeys {
-    keys = append(keys, key.GetCachedValue().(cryptotypes.PubKey))
-  }
+	// first gather all nested pub keys
+	var keys []address.Addressable  // cryptotypes.PubKey implements Addressable
+	for _, _key := range multisig.Pubkeys {
+		keys = append(keys, key.GetCachedValue().(cryptotypes.PubKey))
+	}
 
-  // form the type from the message name (cosmos.crypto.multisig.PubKey) and the threshold joined together
-  prefix := fmt.Sprintf("%s/%d", proto.MessageName(multisig), multisig.Threshold)
+	// form the type from the message name (cosmos.crypto.multisig.PubKey) and the threshold joined together
+	prefix := fmt.Sprintf("%s/%d", proto.MessageName(multisig), multisig.Threshold)
 
-  // use the Composed function defined above
-  return address.Composed(prefix, keys)
+	// use the Composed function defined above
+	return address.Composed(prefix, keys)
 }
 ```
 
-#### Module Account Addresses
 
-NOTE: this section is not finalize and it's in active discussion.
-
-In Basic Address section we defined a module account address as:
-
-```go
-address.Hash("module", moduleName)
-```
-
-We use `"module"` as a schema type for all module derived addresses. Module accounts can have sub accounts. The derivation process has a defined order: module name, submodule key, subsubmodule key.
-Module account addresses are heavily used in the Cosmos SDK so it makes sense to optimize the derivation process: instead of using of using `LengthPrefix` for the module name, we use a null byte (`'\x00'`) as a separator. This works, because null byte is not a part of a valid module name.
-
-```go
-func Module(moduleName string, key []byte) []byte{
-	return Hash("module", []byte(moduleName) + 0 + key)
-}
-```
-
-**Example**  A lending BTC pool address would be:
-
-```
-btcPool := address.Module("lending", btc.Addrress()})
-```
-
-If we want to create an address for a module account depending on more than one key, we can concatenate them:
-
-```
-btcAtomAMM := address.Module("amm", btc.Addrress() + atom.Address()})
-```
-
-#### Derived Addresses
+### Derived Addresses
 
 We must be able to cryptographically derive one address from another one. The derivation process must guarantee hash properties, hence we use the already defined `Hash` function:
 
 ```go
-func Derive(address []byte, derivationKey []byte) []byte {
-    return Hash(addres, derivationKey)
+func Derive(address, derivationKey []byte) []byte {
+	return Hash(address, derivationKey)
 }
 ```
 
-Note: `Module` is a special case of the more general _derived_ address, where we set the `"module"` string for the _from address_.
+### Module Account Addresses
 
-**Example**  For a cosmwasm smart-contract address we could use the following construction:
+A module account will have `"module"` type. Module accounts can have sub accounts. The submodule account will be created based on module name, and sequence of derivation keys. Typically, the first derivation key should be a class of the derived accounts. The derivation process has a defined order: module name, submodule key, subsubmodule key... An example module account is created using:
 
+```go
+address.Module(moduleName, key)
 ```
-smartContractAddr := Derived(Module("cosmwasm", smartContractsNamespace), []{smartContractKey})
+
+An example sub-module account is created using:
+
+```go
+groupPolicyAddresses := []byte{1}
+address.Module(moduleName, groupPolicyAddresses, policyID)
+```
+
+The `address.Module` function is using `address.Hash` with `"module"` as the type argument, and byte representation of the module name concatenated with submodule key. The last two components must be uniquely separated to avoid potential clashes (example: modulename="ab" & submodulekey="bc" will have the same derivation key as modulename="a" & submodulekey="bbc").
+We use a null byte (`'\x00'`) to separate module name from the submodule key. This works, because null byte is not a part of a valid module name. Finally, the sub-submodule accounts are created by applying the `Derive` function recursively.
+We could use `Derive` function also in the first step (rather than concatenating the module name with a zero byte and the submodule key). We decided to do concatenation to avoid one level of derivation and speed up computation.
+
+For backward compatibility with the existing `authtypes.NewModuleAddress`, we add a special case in `Module` function: when no derivation key is provided, we fallback to the "legacy" implementation. 
+
+```go
+func Module(moduleName string, derivationKeys ...[]byte) []byte{
+	if len(derivationKeys) == 0 {
+		return authtypes.NewModuleAddress(moduleName)  // legacy case
+	}
+	submoduleAddress := Hash("module", []byte(moduleName) + 0 + key)
+	return fold((a, k) => Derive(a, k), subsubKeys, submoduleAddress)
+}
+```
+
+**Example 1**  A lending BTC pool address would be:
+
+```go
+btcPool := address.Module("lending", btc.Address()})
+```
+
+If we want to create an address for a module account depending on more than one key, we can concatenate them:
+
+```go
+btcAtomAMM := address.Module("amm", btc.Address() + atom.Address()})
+```
+
+**Example 2**  a smart-contract address could be constructed by:
+
+```go
+smartContractAddr = Module("mySmartContractVM", smartContractsNamespace, smartContractKey})
+
+// which equals to:
+smartContractAddr = Derived(
+    Module("mySmartContractVM", smartContractsNamespace), 
+    []{smartContractKey})
 ```
 
 ### Schema Types
@@ -231,11 +244,11 @@ Since all Cosmos SDK account types are serialized in the state, we propose to us
 
 Example: all public key types have a unique protobuf message type similar to:
 
-```proto
+```protobuf
 package cosmos.crypto.sr25519;
 
 message PubKey {
-  bytes key = 1;
+	bytes key = 1;
 }
 ```
 
@@ -252,25 +265,25 @@ This ADR is compatible with what was committed and directly supported in the Cos
 
 ### Positive
 
-- a simple algorithm for generating addresses for new public keys, complex accounts and modules
-- the algorithm generalizes _native composed keys_
-- increased security and collision resistance of addresses
-- the approach is extensible for future use-cases - one can use other address types, as long as they don't conflict with the address length specified here (20 or 32 bytes).
-- support new account types.
+* a simple algorithm for generating addresses for new public keys, complex accounts and modules
+* the algorithm generalizes _native composed keys_
+* increased security and collision resistance of addresses
+* the approach is extensible for future use-cases - one can use other address types, as long as they don't conflict with the address length specified here (20 or 32 bytes).
+* support new account types.
 
 ### Negative
 
-- addresses do not communicate key type, a prefixed approach would have done this
-- addresses are 60% longer and will consume more storage space
-- requires a refactor of KVStore store keys to handle variable length addresses
+* addresses do not communicate key type, a prefixed approach would have done this
+* addresses are 60% longer and will consume more storage space
+* requires a refactor of KVStore store keys to handle variable length addresses
 
 ### Neutral
 
-- protobuf message names are used as key type prefixes
+* protobuf message names are used as key type prefixes
 
 ## Further Discussions
 
-Some accounts can have a fixed name or may be constructed in other way (eg: modules). We were discussing an idea of an account with a predefined name (eg: `me.regen`), which could be used by institutions.
+Some accounts can have a fixed name or may be constructed in another way (eg: modules). We were discussing an idea of an account with a predefined name (eg: `me.regen`), which could be used by institutions.
 Without going into details, these kinds of addresses are compatible with the hash based addresses described here as long as they don't have the same length.
 More specifically, any special account address must not have a length equal to 20 or 32 bytes.
 
@@ -280,50 +293,50 @@ End of Dec 2020 we had a session with [Alan Szepieniec](https://scholar.google.b
 
 Alan general observations:
 
-+ we don’t need 2-preimage resistance
-+ we need 32bytes address space for collision resistance
-+ when an attacker can control an input for object with an address then we have a problem with birthday attack
-+ there is an issue with smart-contracts for hashing
-+ sha2 mining can be use to breaking address pre-image
+* we don’t need 2-preimage resistance
+* we need 32bytes address space for collision resistance
+* when an attacker can control an input for an object with an address then we have a problem with a birthday attack
+* there is an issue with smart-contracts for hashing
+* sha2 mining can be used to break the address pre-image
 
 Hashing algorithm
 
-+ any attack breaking blake3 will break blake2
-+ Alan is pretty confident about the current security analysis of the blake hash algorithm. It was a finalist, and the author is well known in security analysis.
+* any attack breaking blake3 will break blake2
+* Alan is pretty confident about the current security analysis of the blake hash algorithm. It was a finalist, and the author is well known in security analysis.
 
 Algorithm:
 
-+ Alan recommends to hash the prefix: `address(pub_key) = hash(hash(key_type) + pub_key)[:32]`, main benefits:
-    + we are free to user arbitrary long prefix names
-    + we still don’t risk collisions
-    + switch tables
-+ discussion about penalization -> about adding prefix post hash
-+ Aaron asked about post hash prefixes (`address(pub_key) = key_type + hash(pub_key)`) and differences. Alan noted that this approach has longer address space and it’s stronger.
+* Alan recommends to hash the prefix: `address(pub_key) = hash(hash(key_type) + pub_key)[:32]`, main benefits:
+    * we are free to user arbitrary long prefix names
+    * we still don’t risk collisions
+    * switch tables
+* discussion about penalization -> about adding prefix post hash
+* Aaron asked about post hash prefixes (`address(pub_key) = key_type + hash(pub_key)`) and differences. Alan noted that this approach has longer address space and it’s stronger.
 
 Algorithm for complex / composed keys:
 
-+ merging tree like addresses with same algorithm are fine
+* merging tree-like addresses with same algorithm are fine
 
-Module addresses: Should module addresses have different size to differentiate it?
+Module addresses: Should module addresses have a different size to differentiate it?
 
-+ we will need to set a pre-image prefix for module addresse to keept them in 32-byte space: `hash(hash('module') + module_key)`
-+ Aaron observation: we already need to deal with variable length (to not break secp256k1 keys).
+* we will need to set a pre-image prefix for module addresses to keep them in 32-byte space: `hash(hash('module') + module_key)`
+* Aaron observation: we already need to deal with variable length (to not break secp256k1 keys).
 
-Discssion about arithmetic hash function for ZKP
+Discussion about an arithmetic hash function for ZKP
 
-+ Posseidon / Rescue
-+ Problem: much bigger risk because we don’t know much techniques and history of crypto-analysis of arithmetic constructions. It’s still a new ground and area of active research.
+* Poseidon / Rescue
+* Problem: much bigger risk because we don’t know much techniques and the history of crypto-analysis of arithmetic constructions. It’s still a new ground and area of active research.
 
 Post quantum signature size
 
-+ Alan suggestion: Falcon: speed / size ration - very good.
-+ Aaron - should we think about it?
-  Alan: based on early extrapolation this thing will get able to break EC cryptography in 2050 . But that’s a lot of uncertainty. But there is magic happening with recurions / linking / simulation and that can speedup the progress.
+* Alan suggestion: Falcon: speed / size ratio - very good.
+* Aaron - should we think about it?
+  Alan: based on early extrapolation this thing will get able to break EC cryptography in 2050. But that’s a lot of uncertainty. But there is magic happening with recursions / linking / simulation and that can speedup the progress.
 
 Other ideas
 
-+ Let’s say we use same key and two different address algorithms for 2 different use cases. Is it still safe to use it? Alan: if we want to hide the public key (which is not our use case), then it’s less secure but there are fixes.
+* Let’s say we use the same key and two different address algorithms for 2 different use cases. Is it still safe to use it? Alan: if we want to hide the public key (which is not our use case), then it’s less secure but there are fixes.
 
 ### References
 
-+ [Notes](https://hackmd.io/_NGWI4xZSbKzj1BkCqyZMw)
+* [Notes](https://hackmd.io/_NGWI4xZSbKzj1BkCqyZMw)

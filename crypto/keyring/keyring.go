@@ -11,9 +11,11 @@ import (
 	"strings"
 
 	"github.com/99designs/keyring"
-	"github.com/pkg/errors"
-	"github.com/tendermint/crypto/bcrypt"
-	tmcrypto "github.com/tendermint/tendermint/crypto"
+	"github.com/cockroachdb/errors"
+	"github.com/cosmos/go-bip39"
+	"golang.org/x/crypto/bcrypt"
+
+	errorsmod "cosmossdk.io/errors"
 
 	"github.com/cosmos/cosmos-sdk/client/input"
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -23,7 +25,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/go-bip39"
+	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 )
 
 // Backend options for Keyring
@@ -43,15 +45,20 @@ const (
 
 	// temporary pass phrase for exporting a key during a key rename
 	passPhrase = "temp"
+	// prefix for exported hex private keys
+	hexPrefix = "0x"
 )
 
 var (
-	_                          Keyring = &keystore{}
-	maxPassphraseEntryAttempts         = 3
+	_                          Keyring       = &keystore{}
+	_                          KeyringWithDB = &keystore{}
+	maxPassphraseEntryAttempts               = 3
 )
 
 // Keyring exposes operations over a backend supported by github.com/99designs/keyring.
 type Keyring interface {
+	// Get the backend type used in the keyring config: "file", "os", "kwallet", "pass", "test", "memory".
+	Backend() string
 	// List all keys.
 	List() ([]*Record, error)
 
@@ -67,7 +74,7 @@ type Keyring interface {
 	DeleteByAddress(address sdk.Address) error
 
 	// Rename an existing key from the Keyring
-	Rename(from string, to string) error
+	Rename(from, to string) error
 
 	// NewMnemonic generates a new mnemonic, derives a hierarchical deterministic key from it, and
 	// persists the key to storage. Returns the generated mnemonic and the key Info.
@@ -98,34 +105,35 @@ type Keyring interface {
 	Migrator
 }
 
-// UnsafeKeyring exposes unsafe operations such as unsafe unarmored export in
-// addition to those that are made available by the Keyring interface.
-type UnsafeKeyring interface {
+type KeyringWithDB interface { //nolint: revive // we can ignore this, as this type is being used
 	Keyring
-	UnsafeExporter
+
+	// Get the db keyring used in the keystore.
+	DB() keyring.Keyring
 }
 
 // Signer is implemented by key stores that want to provide signing capabilities.
 type Signer interface {
 	// Sign sign byte messages with a user key.
-	Sign(uid string, msg []byte) ([]byte, types.PubKey, error)
+	Sign(uid string, msg []byte, signMode signing.SignMode) ([]byte, types.PubKey, error)
 
 	// SignByAddress sign byte messages with a user key providing the address.
-	SignByAddress(address sdk.Address, msg []byte) ([]byte, types.PubKey, error)
+	SignByAddress(address sdk.Address, msg []byte, signMode signing.SignMode) ([]byte, types.PubKey, error)
 }
 
 // Importer is implemented by key stores that support import of public and private keys.
 type Importer interface {
 	// ImportPrivKey imports ASCII armored passphrase-encrypted private keys.
 	ImportPrivKey(uid, armor, passphrase string) error
-
+	// ImportPrivKeyHex imports hex encoded keys.
+	ImportPrivKeyHex(uid, privKey, algoStr string) error
 	// ImportPubKey imports ASCII armored public keys.
-	ImportPubKey(uid string, armor string) error
+	ImportPubKey(uid, armor string) error
 }
 
-// Migrator is implemented by key stores and enables migration of  keys from amino to proto
+// Migrator is implemented by key stores and enables migration of keys from amino to proto
 type Migrator interface {
-	MigrateAll() (bool, error)
+	MigrateAll() ([]*Record, error)
 }
 
 // Exporter is implemented by key stores that support export of public and private keys.
@@ -140,35 +148,26 @@ type Exporter interface {
 	ExportPrivKeyArmorByAddress(address sdk.Address, encryptPassphrase string) (armor string, err error)
 }
 
-// UnsafeExporter is implemented by key stores that support unsafe export
-// of private keys' material.
-type UnsafeExporter interface {
-	// UnsafeExportPrivKeyHex returns a private key in unarmored hex format
-	UnsafeExportPrivKeyHex(uid string) (string, error)
-}
-
 // Option overrides keyring configuration options.
 type Option func(options *Options)
-
-// Options define the options of the Keyring.
-type Options struct {
-	// supported signing algorithms for keyring
-	SupportedAlgos SigningAlgoList
-	// supported signing algorithms for Ledger
-	SupportedAlgosLedger SigningAlgoList
-}
 
 // NewInMemory creates a transient keyring useful for testing
 // purposes and on-the-fly key generation.
 // Keybase options can be applied when generating this new Keybase.
 func NewInMemory(cdc codec.Codec, opts ...Option) Keyring {
-	return newKeystore(keyring.NewArrayKeyring(nil), cdc, opts...)
+	return NewInMemoryWithKeyring(keyring.NewArrayKeyring(nil), cdc, opts...)
+}
+
+// NewInMemoryWithKeyring returns an in memory keyring using the specified keyring.Keyring
+// as the backing keyring.
+func NewInMemoryWithKeyring(kr keyring.Keyring, cdc codec.Codec, opts ...Option) Keyring {
+	return newKeystore(kr, cdc, BackendMemory, opts...)
 }
 
 // New creates a new instance of a keyring.
-// Keyring ptions can be applied when generating the new instance.
+// Keyring options can be applied when generating the new instance.
 // Available backends are "os", "file", "kwallet", "memory", "pass", "test".
-func New(
+func newKeyringGeneric(
 	appName, backend, rootDir string, userInput io.Reader, cdc codec.Codec, opts ...Option,
 ) (Keyring, error) {
 	var (
@@ -190,24 +189,26 @@ func New(
 	case BackendPass:
 		db, err = keyring.Open(newPassBackendKeyringConfig(appName, rootDir, userInput))
 	default:
-		return nil, fmt.Errorf("unknown keyring backend %v", backend)
+		return nil, errorsmod.Wrap(ErrUnknownBackend, backend)
 	}
 
 	if err != nil {
 		return nil, err
 	}
 
-	return newKeystore(db, cdc, opts...), nil
+	return newKeystore(db, cdc, backend, opts...), nil
 }
 
 type keystore struct {
 	db      keyring.Keyring
 	cdc     codec.Codec
+	backend string
 	options Options
 }
 
-func newKeystore(kr keyring.Keyring, cdc codec.Codec, opts ...Option) keystore {
-	// Default options for keybase
+func newKeystore(kr keyring.Keyring, cdc codec.Codec, backend string, opts ...Option) keystore {
+	// Default options for keybase, these can be overwritten using the
+	// Option function
 	options := Options{
 		SupportedAlgos:       SigningAlgoList{hd.Secp256k1},
 		SupportedAlgosLedger: SigningAlgoList{hd.Secp256k1},
@@ -217,7 +218,33 @@ func newKeystore(kr keyring.Keyring, cdc codec.Codec, opts ...Option) keystore {
 		optionFn(&options)
 	}
 
-	return keystore{kr, cdc, options}
+	if options.LedgerDerivation != nil {
+		ledger.SetDiscoverLedger(options.LedgerDerivation)
+	}
+
+	if options.LedgerCreateKey != nil {
+		ledger.SetCreatePubkey(options.LedgerCreateKey)
+	}
+
+	if options.LedgerAppName != "" {
+		ledger.SetAppName(options.LedgerAppName)
+	}
+
+	if options.LedgerSigSkipDERConv {
+		ledger.SetSkipDERConversion()
+	}
+
+	return keystore{
+		db:      kr,
+		cdc:     cdc,
+		backend: backend,
+		options: options,
+	}
+}
+
+// Backend returns the keyring backend option used in the config
+func (ks keystore) Backend() string {
+	return ks.backend
 }
 
 func (ks keystore) ExportPubKeyArmor(uid string) (string, error) {
@@ -237,6 +264,11 @@ func (ks keystore) ExportPubKeyArmor(uid string) (string, error) {
 	}
 
 	return crypto.ArmorPubKeyBytes(bz, key.Type()), nil
+}
+
+// DB returns the db keyring used in the keystore
+func (ks keystore) DB() keyring.Keyring {
+	return ks.db
 }
 
 func (ks keystore) ExportPubKeyArmorByAddress(address sdk.Address) (string, error) {
@@ -285,13 +317,13 @@ func (ks keystore) ExportPrivKeyArmorByAddress(address sdk.Address, encryptPassp
 func (ks keystore) ImportPrivKey(uid, armor, passphrase string) error {
 	if k, err := ks.Key(uid); err == nil {
 		if uid == k.Name {
-			return fmt.Errorf("cannot overwrite key: %s", uid)
+			return errorsmod.Wrap(ErrOverwriteKey, uid)
 		}
 	}
 
 	privKey, _, err := crypto.UnarmorDecryptPrivKey(armor, passphrase)
 	if err != nil {
-		return errors.Wrap(err, "failed to decrypt private key")
+		return errorsmod.Wrap(err, "failed to decrypt private key")
 	}
 
 	_, err = ks.writeLocalKey(uid, privKey)
@@ -302,9 +334,32 @@ func (ks keystore) ImportPrivKey(uid, armor, passphrase string) error {
 	return nil
 }
 
-func (ks keystore) ImportPubKey(uid string, armor string) error {
+func (ks keystore) ImportPrivKeyHex(uid, privKey, algoStr string) error {
 	if _, err := ks.Key(uid); err == nil {
-		return fmt.Errorf("cannot overwrite key: %s", uid)
+		return errorsmod.Wrap(ErrOverwriteKey, uid)
+	}
+	if privKey[:2] == hexPrefix {
+		privKey = privKey[2:]
+	}
+	decodedPriv, err := hex.DecodeString(privKey)
+	if err != nil {
+		return err
+	}
+	algo, err := NewSigningAlgoFromString(algoStr, ks.options.SupportedAlgos)
+	if err != nil {
+		return err
+	}
+	priv := algo.Generate()(decodedPriv)
+	_, err = ks.writeLocalKey(uid, priv)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (ks keystore) ImportPubKey(uid, armor string) error {
+	if _, err := ks.Key(uid); err == nil {
+		return errorsmod.Wrap(ErrOverwriteKey, uid)
 	}
 
 	pubBytes, _, err := crypto.UnarmorPubKeyBytes(armor)
@@ -325,7 +380,7 @@ func (ks keystore) ImportPubKey(uid string, armor string) error {
 	return nil
 }
 
-func (ks keystore) Sign(uid string, msg []byte) ([]byte, types.PubKey, error) {
+func (ks keystore) Sign(uid string, msg []byte, signMode signing.SignMode) ([]byte, types.PubKey, error) {
 	k, err := ks.Key(uid)
 	if err != nil {
 		return nil, nil, err
@@ -346,7 +401,7 @@ func (ks keystore) Sign(uid string, msg []byte) ([]byte, types.PubKey, error) {
 		return sig, priv.PubKey(), nil
 
 	case k.GetLedger() != nil:
-		return SignWithLedger(k, msg)
+		return SignWithLedger(k, msg, signMode)
 
 		// multi or offline record
 	default:
@@ -354,34 +409,29 @@ func (ks keystore) Sign(uid string, msg []byte) ([]byte, types.PubKey, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-
-		return nil, pub, errors.New("cannot sign with offline keys")
+		return nil, pub, ErrOfflineSign
 	}
 }
 
-func (ks keystore) SignByAddress(address sdk.Address, msg []byte) ([]byte, types.PubKey, error) {
+func (ks keystore) SignByAddress(address sdk.Address, msg []byte, signMode signing.SignMode) ([]byte, types.PubKey, error) {
 	k, err := ks.KeyByAddress(address)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return ks.Sign(k.Name, msg)
+	return ks.Sign(k.Name, msg, signMode)
 }
 
 func (ks keystore) SaveLedgerKey(uid string, algo SignatureAlgo, hrp string, coinType, account, index uint32) (*Record, error) {
-
 	if !ks.options.SupportedAlgosLedger.Contains(algo) {
-		return nil, fmt.Errorf(
-			"%w: signature algo %s is not defined in the keyring options",
-			ErrUnsupportedSigningAlgo, algo.Name(),
-		)
+		return nil, errorsmod.Wrap(ErrUnsupportedSigningAlgo, fmt.Sprintf("signature algo %s is not defined in the keyring options", algo.Name()))
 	}
 
 	hdPath := hd.NewFundraiserParams(account, coinType, index)
 
 	priv, _, err := ledger.NewPrivKeySecp256k1(*hdPath, hrp)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate ledger key: %w", err)
+		return nil, errors.CombineErrors(ErrLedgerGenerateKey, err)
 	}
 
 	return ks.writeLedgerKey(uid, priv.PubKey(), hdPath)
@@ -421,7 +471,7 @@ func (ks keystore) DeleteByAddress(address sdk.Address) error {
 func (ks keystore) Rename(oldName, newName string) error {
 	_, err := ks.Key(newName)
 	if err == nil {
-		return fmt.Errorf("rename failed: %s already exists in the keyring", newName)
+		return errorsmod.Wrap(ErrKeyAlreadyExists, fmt.Sprintf("rename failed, %s", newName))
 	}
 
 	armor, err := ks.ExportPrivKeyArmor(oldName, passPhrase)
@@ -469,58 +519,25 @@ func (ks keystore) Delete(uid string) error {
 func (ks keystore) KeyByAddress(address sdk.Address) (*Record, error) {
 	ik, err := ks.db.Get(addrHexKeyAsString(address))
 	if err != nil {
-		return nil, wrapKeyNotFound(err, fmt.Sprint("key with address ", address.String(), "not found"))
+		return nil, wrapKeyNotFound(err, fmt.Sprintf("key with address %s not found", address.String()))
 	}
 
 	if len(ik.Data) == 0 {
-		return nil, wrapKeyNotFound(err, fmt.Sprint("key with address ", address.String(), "not found"))
+		return nil, wrapKeyNotFound(err, fmt.Sprintf("key with address %s not found", address.String()))
 	}
 
 	return ks.Key(string(ik.Data))
 }
 
 func wrapKeyNotFound(err error, msg string) error {
-	if err == keyring.ErrKeyNotFound {
-		return sdkerrors.Wrap(sdkerrors.ErrKeyNotFound, msg)
+	if errors.Is(err, keyring.ErrKeyNotFound) {
+		return errorsmod.Wrap(sdkerrors.ErrKeyNotFound, msg)
 	}
 	return err
 }
 
 func (ks keystore) List() ([]*Record, error) {
-	if _, err := ks.MigrateAll(); err != nil {
-		return nil, err
-	}
-
-	keys, err := ks.db.Keys()
-	if err != nil {
-		return nil, err
-	}
-
-	var res []*Record //nolint:prealloc
-	sort.Strings(keys)
-	for _, key := range keys {
-		if strings.Contains(key, addressSuffix) {
-			continue
-		}
-
-		item, err := ks.db.Get(key)
-		if err != nil {
-			return nil, err
-		}
-
-		if len(item.Data) == 0 {
-			return nil, sdkerrors.ErrKeyNotFound.Wrap(key)
-		}
-
-		k, err := ks.protoUnmarshalRecord(item.Data)
-		if err != nil {
-			return nil, err
-		}
-
-		res = append(res, k)
-	}
-
-	return res, nil
+	return ks.MigrateAll()
 }
 
 func (ks keystore) NewMnemonic(uid string, language Language, hdPath, bip39Passphrase string, algo SignatureAlgo) (*Record, string, error) {
@@ -556,7 +573,7 @@ func (ks keystore) NewMnemonic(uid string, language Language, hdPath, bip39Passp
 	return k, mnemonic, nil
 }
 
-func (ks keystore) NewAccount(name string, mnemonic string, bip39Passphrase string, hdPath string, algo SignatureAlgo) (*Record, error) {
+func (ks keystore) NewAccount(name, mnemonic, bip39Passphrase, hdPath string, algo SignatureAlgo) (*Record, error) {
 	if !ks.isSupportedSigningAlgo(algo) {
 		return nil, ErrUnsupportedSigningAlgo
 	}
@@ -569,11 +586,11 @@ func (ks keystore) NewAccount(name string, mnemonic string, bip39Passphrase stri
 
 	privKey := algo.Generate()(derivedPriv)
 
-	// check if the a key already exists with the same address and return an error
+	// check if the key already exists with the same address and return an error
 	// if found
 	address := sdk.AccAddress(privKey.PubKey().Address())
 	if _, err := ks.KeyByAddress(address); err == nil {
-		return nil, errors.New("duplicated address created")
+		return nil, ErrDuplicatedAddress
 	}
 
 	return ks.writeLocalKey(name, privKey)
@@ -584,7 +601,7 @@ func (ks keystore) isSupportedSigningAlgo(algo SignatureAlgo) bool {
 }
 
 func (ks keystore) Key(uid string) (*Record, error) {
-	k, _, err := ks.migrate(uid)
+	k, err := ks.migrate(uid)
 	if err != nil {
 		return nil, err
 	}
@@ -601,22 +618,44 @@ func (ks keystore) SupportedAlgorithms() (SigningAlgoList, SigningAlgoList) {
 // SignWithLedger signs a binary message with the ledger device referenced by an Info object
 // and returns the signed bytes and the public key. It returns an error if the device could
 // not be queried or it returned an error.
-func SignWithLedger(k *Record, msg []byte) (sig []byte, pub types.PubKey, err error) {
+func SignWithLedger(k *Record, msg []byte, signMode signing.SignMode) (sig []byte, pub types.PubKey, err error) {
 	ledgerInfo := k.GetLedger()
 	if ledgerInfo == nil {
-		return nil, nil, errors.New("not a ledger object")
+		return nil, nil, ErrNotLedgerObj
 	}
 
 	path := ledgerInfo.GetPath()
 
 	priv, err := ledger.NewPrivKeySecp256k1Unsafe(*path)
 	if err != nil {
-		return
+		return nil, nil, err
 	}
-
-	sig, err = priv.Sign(msg)
+	ledgerPubKey := priv.PubKey()
+	pubKey, err := k.GetPubKey()
 	if err != nil {
 		return nil, nil, err
+	}
+	if !pubKey.Equals(ledgerPubKey) {
+		return nil, nil, fmt.Errorf("the public key that the user attempted to sign with does not match the public key on the ledger device. %v does not match %v", pubKey.String(), ledgerPubKey.String())
+	}
+
+	switch signMode {
+	case signing.SignMode_SIGN_MODE_TEXTUAL:
+		sig, err = priv.Sign(msg)
+		if err != nil {
+			return nil, nil, err
+		}
+	case signing.SignMode_SIGN_MODE_LEGACY_AMINO_JSON:
+		sig, err = priv.SignLedgerAminoJSON(msg)
+		if err != nil {
+			return nil, nil, err
+		}
+	default:
+		return nil, nil, errorsmod.Wrap(ErrInvalidSignMode, fmt.Sprintf("%v", signMode))
+	}
+
+	if !priv.PubKey().VerifySignature(msg, sig) {
+		return nil, nil, ErrLedgerInvalidSignature
 	}
 
 	return sig, priv.PubKey(), nil
@@ -685,7 +724,7 @@ func newRealPrompt(dir string, buf io.Reader) func(string) (string, error) {
 		case err == nil:
 			keyhash, err = os.ReadFile(keyhashFilePath)
 			if err != nil {
-				return "", fmt.Errorf("failed to read %s: %v", keyhashFilePath, err)
+				return "", errorsmod.Wrap(err, fmt.Sprintf("failed to read %s", keyhashFilePath))
 			}
 
 			keyhashStored = true
@@ -694,7 +733,7 @@ func newRealPrompt(dir string, buf io.Reader) func(string) (string, error) {
 			keyhashStored = false
 
 		default:
-			return "", fmt.Errorf("failed to open %s: %v", keyhashFilePath, err)
+			return "", errorsmod.Wrap(err, fmt.Sprintf("failed to open %s", keyhashFilePath))
 		}
 
 		failureCounter := 0
@@ -702,11 +741,11 @@ func newRealPrompt(dir string, buf io.Reader) func(string) (string, error) {
 		for {
 			failureCounter++
 			if failureCounter > maxPassphraseEntryAttempts {
-				return "", fmt.Errorf("too many failed passphrase attempts")
+				return "", ErrMaxPassPhraseAttempts
 			}
 
 			buf := bufio.NewReader(buf)
-			pass, err := input.GetPassword("Enter keyring passphrase:", buf)
+			pass, err := input.GetPassword(fmt.Sprintf("Enter keyring passphrase (attempt %d/%d):", failureCounter, maxPassphraseEntryAttempts), buf)
 			if err != nil {
 				// NOTE: LGTM.io reports a false positive alert that states we are printing the password,
 				// but we only log the error.
@@ -740,14 +779,13 @@ func newRealPrompt(dir string, buf io.Reader) func(string) (string, error) {
 				continue
 			}
 
-			saltBytes := tmcrypto.CRandBytes(16)
-			passwordHash, err := bcrypt.GenerateFromPassword(saltBytes, []byte(pass), 2)
+			passwordHash, err := bcrypt.GenerateFromPassword([]byte(pass), 2)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				continue
 			}
 
-			if err := os.WriteFile(dir+"/keyhash", passwordHash, 0555); err != nil {
+			if err := os.WriteFile(keyhashFilePath, passwordHash, 0o600); err != nil {
 				return "", err
 			}
 
@@ -765,7 +803,11 @@ func (ks keystore) writeLocalKey(name string, privKey types.PrivKey) (*Record, e
 	return k, ks.writeRecord(k)
 }
 
-// writeRecord persists a keyring item in keystore if it does not exist there
+// writeRecord persists a keyring item in keystore if it does not exist there.
+// For each key record, we actually write 2 items:
+// - one with key `<uid>.info`, with Data = the serialized protobuf key
+// - another with key `<addr_as_hex>.address`, with Data = the uid (i.e. the key name)
+// This is to be able to query keys both by name and by address.
 func (ks keystore) writeRecord(k *Record) error {
 	addr, err := k.GetAddress()
 	if err != nil {
@@ -779,12 +821,12 @@ func (ks keystore) writeRecord(k *Record) error {
 		return err
 	}
 	if exists {
-		return fmt.Errorf("public key %s already exists in keybase", key)
+		return errorsmod.Wrap(ErrKeyAlreadyExists, key)
 	}
 
 	serializedRecord, err := ks.cdc.Marshal(k)
 	if err != nil {
-		return fmt.Errorf("unable to serialize record, err - %s", err)
+		return errors.CombineErrors(ErrUnableToSerialize, err)
 	}
 
 	item := keyring.Item{
@@ -810,18 +852,29 @@ func (ks keystore) writeRecord(k *Record) error {
 
 // existsInDb returns (true, nil) if either addr or name exist is in keystore DB.
 // On the other hand, it returns (false, error) if Get method returns error different from keyring.ErrKeyNotFound
+// In case of inconsistent keyring, it recovers it automatically.
 func (ks keystore) existsInDb(addr sdk.Address, name string) (bool, error) {
-
-	if _, err := ks.db.Get(addrHexKeyAsString(addr)); err == nil {
-		return true, nil // address lookup succeeds - info exists
-	} else if err != keyring.ErrKeyNotFound {
-		return false, err // received unexpected error - returns error
+	_, errAddr := ks.db.Get(addrHexKeyAsString(addr))
+	if errAddr != nil && !errors.Is(errAddr, keyring.ErrKeyNotFound) {
+		return false, errAddr
 	}
 
-	if _, err := ks.db.Get(name); err == nil {
+	_, errInfo := ks.db.Get(infoKey(name))
+	if errInfo == nil {
 		return true, nil // uid lookup succeeds - info exists
-	} else if err != keyring.ErrKeyNotFound {
-		return false, err // received unexpected error - returns
+	} else if !errors.Is(errInfo, keyring.ErrKeyNotFound) {
+		return false, errInfo // received unexpected error - returns
+	}
+
+	// looking for an issue, record with meta (getByAddress) exists, but record with public key itself does not
+	if errAddr == nil && errors.Is(errInfo, keyring.ErrKeyNotFound) {
+		fmt.Fprintf(os.Stderr, "address \"%s\" exists but pubkey itself does not\n", hex.EncodeToString(addr.Bytes()))
+		fmt.Fprintln(os.Stderr, "recreating pubkey record")
+		err := ks.db.Remove(addrHexKeyAsString(addr))
+		if err != nil {
+			return true, err
+		}
+		return false, nil
 	}
 
 	// both lookups failed, info does not exist
@@ -837,7 +890,7 @@ func (ks keystore) writeOfflineKey(name string, pk types.PubKey) (*Record, error
 	return k, ks.writeRecord(k)
 }
 
-// writeMultisigKey investigate where thisf function is called maybe remove it
+// writeMultisigKey investigate where this function is called maybe remove it
 func (ks keystore) writeMultisigKey(name string, pk types.PubKey) (*Record, error) {
 	k, err := NewMultiRecord(name, pk)
 	if err != nil {
@@ -847,83 +900,103 @@ func (ks keystore) writeMultisigKey(name string, pk types.PubKey) (*Record, erro
 	return k, ks.writeRecord(k)
 }
 
-func (ks keystore) MigrateAll() (bool, error) {
+func (ks keystore) MigrateAll() ([]*Record, error) {
 	keys, err := ks.db.Keys()
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 
 	if len(keys) == 0 {
-		return false, nil
+		return nil, nil
 	}
 
-	var migrated bool
+	sort.Strings(keys)
+	var recs []*Record
 	for _, key := range keys {
-		if strings.Contains(key, addressSuffix) {
+		// The keyring items only with `.info` consists the key info.
+		if !strings.HasSuffix(key, infoSuffix) {
 			continue
 		}
 
-		_, migrated2, err := ks.migrate(key)
+		rec, err := ks.migrate(key)
 		if err != nil {
-			fmt.Printf("migrate err: %q", err)
+			fmt.Fprintf(os.Stderr, "migrate err for key %s: %q\n", key, err)
 			continue
 		}
 
-		if migrated2 {
-			migrated = true
-		}
+		recs = append(recs, rec)
 	}
 
-	return migrated, nil
+	return recs, nil
 }
 
 // migrate converts keyring.Item from amino to proto serialization format.
-func (ks keystore) migrate(key string) (*Record, bool, error) {
-	if !(strings.HasSuffix(key, infoSuffix)) && !(strings.HasPrefix(key, sdk.Bech32PrefixAccAddr)) {
+// the `key` argument can be a key uid (e.g. "alice") or with the '.info'
+// suffix (e.g. "alice.info").
+//
+// It operates as follows:
+// 1. retrieve any key
+// 2. try to decode it using protobuf
+// 3. if ok, then return the key, do nothing else
+// 4. if it fails, then try to decode it using amino
+// 5. convert from the amino struct to the protobuf struct
+// 6. write the proto-encoded key back to the keyring
+func (ks keystore) migrate(key string) (*Record, error) {
+	if !strings.HasSuffix(key, infoSuffix) {
 		key = infoKey(key)
 	}
+
+	// 1. get the key.
 	item, err := ks.db.Get(key)
 	if err != nil {
-		return nil, false, wrapKeyNotFound(err, key)
+		if key == fmt.Sprintf(".%s", infoSuffix) {
+			return nil, errors.New("no key name or address provided; have you forgotten the --from flag?")
+		}
+
+		return nil, wrapKeyNotFound(err, key)
 	}
 
 	if len(item.Data) == 0 {
-		return nil, false, sdkerrors.Wrap(sdkerrors.ErrKeyNotFound, key)
+		return nil, errorsmod.Wrap(sdkerrors.ErrKeyNotFound, key)
 	}
 
-	// 2.try to deserialize using proto, if good then continue, otherwise try to deserialize using amino
+	// 2. Try to deserialize using proto
 	k, err := ks.protoUnmarshalRecord(item.Data)
+	// 3. If ok then return the key
 	if err == nil {
-		return k, false, nil
+		return k, nil
 	}
 
-	LegacyInfo, err := unMarshalLegacyInfo(item.Data)
+	// 4. Try to decode with amino
+	legacyInfo, err := unMarshalLegacyInfo(item.Data)
 	if err != nil {
-		return nil, false, fmt.Errorf("unable to unmarshal item.Data, err: %w", err)
+		return nil, errorsmod.Wrap(err, "unable to unmarshal item.Data")
 	}
 
-	// 4.serialize info using proto
-	k, err = ks.convertFromLegacyInfo(LegacyInfo)
+	// 5. Convert and serialize info using proto
+	k, err = ks.convertFromLegacyInfo(legacyInfo)
 	if err != nil {
-		return nil, false, fmt.Errorf("convertFromLegacyInfo, err: %w", err)
+		return nil, errorsmod.Wrap(err, "convertFromLegacyInfo")
 	}
 
 	serializedRecord, err := ks.cdc.Marshal(k)
 	if err != nil {
-		return nil, false, fmt.Errorf("unable to serialize record, err: %w", err)
+		return nil, errors.CombineErrors(ErrUnableToSerialize, err)
 	}
 
 	item = keyring.Item{
-		Key:         key,
-		Data:        serializedRecord,
-		Description: "SDK kerying version",
-	}
-	// 5.overwrite the keyring entry with
-	if err := ks.SetItem(item); err != nil {
-		return nil, false, fmt.Errorf("unable to set keyring.Item, err: %w", err)
+		Key:  key,
+		Data: serializedRecord,
 	}
 
-	return k, true, nil
+	// 6. Overwrite the keyring entry with the new proto-encoded key.
+	if err := ks.SetItem(item); err != nil {
+		return nil, errorsmod.Wrap(err, "unable to set keyring.Item")
+	}
+
+	fmt.Fprintf(os.Stderr, "Successfully migrated key %s.\n", key)
+
+	return k, nil
 }
 
 func (ks keystore) protoUnmarshalRecord(bz []byte) (*Record, error) {
@@ -941,7 +1014,7 @@ func (ks keystore) SetItem(item keyring.Item) error {
 
 func (ks keystore) convertFromLegacyInfo(info LegacyInfo) (*Record, error) {
 	if info == nil {
-		return nil, errors.New("unable to convert LegacyInfo to Record cause info is nil")
+		return nil, errorsmod.Wrap(ErrLegacyToRecord, "info is nil")
 	}
 
 	name := info.GetName()
@@ -967,32 +1040,9 @@ func (ks keystore) convertFromLegacyInfo(info LegacyInfo) (*Record, error) {
 
 		return NewLedgerRecord(name, pk, path)
 	default:
-		return nil, errors.New("unknown LegacyInfo type")
+		return nil, ErrUnknownLegacyType
 
 	}
-}
-
-type unsafeKeystore struct {
-	keystore
-}
-
-// NewUnsafe returns a new keyring that provides support for unsafe operations.
-func NewUnsafe(kr Keyring) UnsafeKeyring {
-	// The type assertion is against the only keystore
-	// implementation that is currently provided.
-	ks := kr.(keystore)
-
-	return unsafeKeystore{ks}
-}
-
-// UnsafeExportPrivKeyHex exports private keys in unarmored hexadecimal format.
-func (ks unsafeKeystore) UnsafeExportPrivKeyHex(uid string) (privkey string, err error) {
-	priv, err := ks.ExportPrivateKeyObject(uid)
-	if err != nil {
-		return "", err
-	}
-
-	return hex.EncodeToString(priv.Bytes()), nil
 }
 
 func addrHexKeyAsString(address sdk.Address) string {

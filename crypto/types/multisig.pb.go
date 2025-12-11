@@ -5,8 +5,8 @@ package types
 
 import (
 	fmt "fmt"
-	_ "github.com/gogo/protobuf/gogoproto"
-	proto "github.com/gogo/protobuf/proto"
+	_ "github.com/cosmos/gogoproto/gogoproto"
+	proto "github.com/cosmos/gogoproto/proto"
 	io "io"
 	math "math"
 	math_bits "math/bits"
@@ -24,7 +24,7 @@ var _ = math.Inf
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
 // MultiSignature wraps the signatures from a multisig.LegacyAminoPubKey.
-// See cosmos.tx.v1betata1.ModeInfo.Multi for how to specify which signers
+// See cosmos.tx.v1beta1.ModeInfo.Multi for how to specify which signers
 // signed and with which modes.
 type MultiSignature struct {
 	Signatures       [][]byte `protobuf:"bytes,1,rep,name=signatures,proto3" json:"signatures,omitempty"`

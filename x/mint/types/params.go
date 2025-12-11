@@ -3,33 +3,16 @@ package types
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 
-	"sigs.k8s.io/yaml"
+	sdkmath "cosmossdk.io/math"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 )
 
-// Parameter store keys
-var (
-	KeyMintDenom           = []byte("MintDenom")
-	KeyInflationRateChange = []byte("InflationRateChange")
-	KeyInflationMax        = []byte("InflationMax")
-	KeyInflationMin        = []byte("InflationMin")
-	KeyGoalBonded          = []byte("GoalBonded")
-	KeyBlocksPerYear       = []byte("BlocksPerYear")
-)
-
-// ParamTable for minting module.
-func ParamKeyTable() paramtypes.KeyTable {
-	return paramtypes.NewKeyTable().RegisterParamSet(&Params{})
-}
-
-func NewParams(
-	mintDenom string, inflationRateChange, inflationMax, inflationMin, goalBonded sdk.Dec, blocksPerYear uint64,
-) Params {
-
+// NewParams returns Params instance with the given values.
+func NewParams(mintDenom string, inflationRateChange, inflationMax, inflationMin, goalBonded sdkmath.LegacyDec, blocksPerYear uint64) Params {
 	return Params{
 		MintDenom:           mintDenom,
 		InflationRateChange: inflationRateChange,
@@ -40,19 +23,19 @@ func NewParams(
 	}
 }
 
-// default minting module parameters
+// DefaultParams returns default x/mint module parameters.
 func DefaultParams() Params {
 	return Params{
 		MintDenom:           sdk.DefaultBondDenom,
-		InflationRateChange: sdk.NewDecWithPrec(13, 2),
-		InflationMax:        sdk.NewDecWithPrec(20, 2),
-		InflationMin:        sdk.NewDecWithPrec(7, 2),
-		GoalBonded:          sdk.NewDecWithPrec(67, 2),
+		InflationRateChange: sdkmath.LegacyNewDecWithPrec(13, 2),
+		InflationMax:        sdkmath.LegacyNewDecWithPrec(20, 2),
+		InflationMin:        sdkmath.LegacyNewDecWithPrec(7, 2),
+		GoalBonded:          sdkmath.LegacyNewDecWithPrec(67, 2),
 		BlocksPerYear:       uint64(60 * 60 * 8766 / 5), // assuming 5 second block times
 	}
 }
 
-// validate params
+// Validate does the sanity check on the params.
 func (p Params) Validate() error {
 	if err := validateMintDenom(p.MintDenom); err != nil {
 		return err
@@ -80,115 +63,82 @@ func (p Params) Validate() error {
 	}
 
 	return nil
-
 }
 
-// String implements the Stringer interface.
-func (p Params) String() string {
-	out, _ := yaml.Marshal(p)
-	return string(out)
-}
-
-// Implements params.ParamSet
-func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
-	return paramtypes.ParamSetPairs{
-		paramtypes.NewParamSetPair(KeyMintDenom, &p.MintDenom, validateMintDenom),
-		paramtypes.NewParamSetPair(KeyInflationRateChange, &p.InflationRateChange, validateInflationRateChange),
-		paramtypes.NewParamSetPair(KeyInflationMax, &p.InflationMax, validateInflationMax),
-		paramtypes.NewParamSetPair(KeyInflationMin, &p.InflationMin, validateInflationMin),
-		paramtypes.NewParamSetPair(KeyGoalBonded, &p.GoalBonded, validateGoalBonded),
-		paramtypes.NewParamSetPair(KeyBlocksPerYear, &p.BlocksPerYear, validateBlocksPerYear),
-	}
-}
-
-func validateMintDenom(i interface{}) error {
-	v, ok := i.(string)
-	if !ok {
-		return fmt.Errorf("invalid parameter type: %T", i)
-	}
-
-	if strings.TrimSpace(v) == "" {
+func validateMintDenom(denom string) error {
+	if strings.TrimSpace(denom) == "" {
 		return errors.New("mint denom cannot be blank")
 	}
-	if err := sdk.ValidateDenom(v); err != nil {
+	if err := sdk.ValidateDenom(denom); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func validateInflationRateChange(i interface{}) error {
-	v, ok := i.(sdk.Dec)
-	if !ok {
-		return fmt.Errorf("invalid parameter type: %T", i)
+func validateInflationRateChange(rateChange sdkmath.LegacyDec) error {
+	if rateChange.IsNil() {
+		return fmt.Errorf("inflation rate change cannot be nil: %s", rateChange)
 	}
-
-	if v.IsNegative() {
-		return fmt.Errorf("inflation rate change cannot be negative: %s", v)
+	if rateChange.IsNegative() {
+		return fmt.Errorf("inflation rate change cannot be negative: %s", rateChange)
 	}
-	if v.GT(sdk.OneDec()) {
-		return fmt.Errorf("inflation rate change too large: %s", v)
-	}
-
-	return nil
-}
-
-func validateInflationMax(i interface{}) error {
-	v, ok := i.(sdk.Dec)
-	if !ok {
-		return fmt.Errorf("invalid parameter type: %T", i)
-	}
-
-	if v.IsNegative() {
-		return fmt.Errorf("max inflation cannot be negative: %s", v)
-	}
-	if v.GT(sdk.OneDec()) {
-		return fmt.Errorf("max inflation too large: %s", v)
+	if rateChange.GT(sdkmath.LegacyOneDec()) {
+		return fmt.Errorf("inflation rate change too large: %s", rateChange)
 	}
 
 	return nil
 }
 
-func validateInflationMin(i interface{}) error {
-	v, ok := i.(sdk.Dec)
-	if !ok {
-		return fmt.Errorf("invalid parameter type: %T", i)
+func validateInflationMax(inflationMax sdkmath.LegacyDec) error {
+	if inflationMax.IsNil() {
+		return fmt.Errorf("max inflation cannot be nil: %s", inflationMax)
 	}
-
-	if v.IsNegative() {
-		return fmt.Errorf("min inflation cannot be negative: %s", v)
+	if inflationMax.IsNegative() {
+		return fmt.Errorf("max inflation cannot be negative: %s", inflationMax)
 	}
-	if v.GT(sdk.OneDec()) {
-		return fmt.Errorf("min inflation too large: %s", v)
-	}
-
-	return nil
-}
-
-func validateGoalBonded(i interface{}) error {
-	v, ok := i.(sdk.Dec)
-	if !ok {
-		return fmt.Errorf("invalid parameter type: %T", i)
-	}
-
-	if v.IsNegative() {
-		return fmt.Errorf("goal bonded cannot be negative: %s", v)
-	}
-	if v.GT(sdk.OneDec()) {
-		return fmt.Errorf("goal bonded too large: %s", v)
+	if inflationMax.GT(sdkmath.LegacyOneDec()) {
+		return fmt.Errorf("max inflation too large: %s", inflationMax)
 	}
 
 	return nil
 }
 
-func validateBlocksPerYear(i interface{}) error {
-	v, ok := i.(uint64)
-	if !ok {
-		return fmt.Errorf("invalid parameter type: %T", i)
+func validateInflationMin(inflationMin sdkmath.LegacyDec) error {
+	if inflationMin.IsNil() {
+		return fmt.Errorf("min inflation cannot be nil: %s", inflationMin)
+	}
+	if inflationMin.IsNegative() {
+		return fmt.Errorf("min inflation cannot be negative: %s", inflationMin)
+	}
+	if inflationMin.GT(sdkmath.LegacyOneDec()) {
+		return fmt.Errorf("min inflation too large: %s", inflationMin)
 	}
 
-	if v == 0 {
-		return fmt.Errorf("blocks per year must be positive: %d", v)
+	return nil
+}
+
+func validateGoalBonded(goalBonded sdkmath.LegacyDec) error {
+	if goalBonded.IsNil() {
+		return fmt.Errorf("goal bonded cannot be nil: %s", goalBonded)
+	}
+	if goalBonded.IsNegative() || goalBonded.IsZero() {
+		return fmt.Errorf("goal bonded must be positive: %s", goalBonded)
+	}
+	if goalBonded.GT(sdkmath.LegacyOneDec()) {
+		return fmt.Errorf("goal bonded too large: %s", goalBonded)
+	}
+
+	return nil
+}
+
+func validateBlocksPerYear(blocksPerYear uint64) error {
+	if blocksPerYear == 0 {
+		return fmt.Errorf("blocks per year must be positive: %d", blocksPerYear)
+	}
+
+	if blocksPerYear > math.MaxInt64 {
+		return fmt.Errorf("blocks per year too large: %d, maximum value is: %d", blocksPerYear, math.MaxInt64)
 	}
 
 	return nil

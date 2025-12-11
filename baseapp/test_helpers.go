@@ -1,93 +1,85 @@
 package baseapp
 
 import (
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
+
+	errorsmod "cosmossdk.io/errors"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/types/tx"
 )
 
 // SimCheck defines a CheckTx helper function that used in tests and simulations.
-func (app *BaseApp) SimCheck(txEncoder sdk.TxEncoder, sdkTx sdk.Tx) (sdk.GasInfo, *sdk.Result, error) {
-	// CheckTx expects tx bytes as argument, so we encode the tx argument into
-	// bytes. Note that CheckTx will actually decode those bytes again. But since
+func (app *BaseApp) SimCheck(txEncoder sdk.TxEncoder, tx sdk.Tx) (sdk.GasInfo, *sdk.Result, error) {
+	// runTx expects tx bytes as argument, so we encode the tx argument into
+	// bytes. Note that runTx will actually decode those bytes again. But since
 	// this helper is only used in tests/simulation, it's fine.
-	bz, err := txEncoder(sdkTx)
+	bz, err := txEncoder(tx)
 	if err != nil {
-		return sdk.GasInfo{}, nil, sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "%s", err)
+		return sdk.GasInfo{}, nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "%s", err)
 	}
 
-	ctx := app.getContextForTx(runTxModeDeliver, bz)
-	res, _, err := app.txHandler.CheckTx(ctx, tx.Request{Tx: sdkTx, TxBytes: bz}, tx.RequestCheckTx{Type: abci.CheckTxType_New})
-	gInfo := sdk.GasInfo{GasWanted: uint64(res.GasWanted), GasUsed: uint64(res.GasUsed)}
-	if err != nil {
-		return gInfo, nil, err
-	}
-
-	data, err := makeABCIData(res)
-	if err != nil {
-		return gInfo, nil, err
-	}
-
-	return gInfo, &sdk.Result{Data: data, Log: res.Log, Events: res.Events, MsgResponses: res.MsgResponses}, nil
+	gasInfo, result, _, err := app.RunTx(execModeCheck, bz, tx, -1, nil, nil)
+	return gasInfo, result, err
 }
 
 // Simulate executes a tx in simulate mode to get result and gas info.
 func (app *BaseApp) Simulate(txBytes []byte) (sdk.GasInfo, *sdk.Result, error) {
-	ctx := app.getContextForTx(runTxModeSimulate, txBytes)
-	res, err := app.txHandler.SimulateTx(ctx, tx.Request{TxBytes: txBytes})
-	gasInfo := sdk.GasInfo{
-		GasWanted: res.GasWanted,
-		GasUsed:   res.GasUsed,
-	}
-	if err != nil {
-		return gasInfo, nil, err
-	}
-
-	data, err := makeABCIData(res)
-	if err != nil {
-		return gasInfo, nil, err
-	}
-
-	return gasInfo, &sdk.Result{Data: data, Log: res.Log, Events: res.Events, MsgResponses: res.MsgResponses}, nil
+	gasInfo, result, _, err := app.RunTx(execModeSimulate, txBytes, nil, -1, nil, nil)
+	return gasInfo, result, err
 }
 
-// SimDeliver defines a DeliverTx helper function that used in tests and
-// simulations.
-func (app *BaseApp) SimDeliver(txEncoder sdk.TxEncoder, sdkTx sdk.Tx) (sdk.GasInfo, *sdk.Result, error) {
+func (app *BaseApp) SimDeliver(txEncoder sdk.TxEncoder, tx sdk.Tx) (sdk.GasInfo, *sdk.Result, error) {
 	// See comment for Check().
-	bz, err := txEncoder(sdkTx)
+	bz, err := txEncoder(tx)
 	if err != nil {
-		return sdk.GasInfo{}, nil, sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "%s", err)
+		return sdk.GasInfo{}, nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "%s", err)
 	}
 
-	ctx := app.getContextForTx(runTxModeDeliver, bz)
-	res, err := app.txHandler.DeliverTx(ctx, tx.Request{Tx: sdkTx, TxBytes: bz})
-	gInfo := sdk.GasInfo{GasWanted: uint64(res.GasWanted), GasUsed: uint64(res.GasUsed)}
-	if err != nil {
-		return gInfo, nil, err
-	}
-
-	data, err := makeABCIData(res)
-	if err != nil {
-		return gInfo, nil, err
-	}
-
-	return gInfo, &sdk.Result{Data: data, Log: res.Log, Events: res.Events, MsgResponses: res.MsgResponses}, nil
+	gasInfo, result, _, err := app.RunTx(execModeFinalize, bz, tx, -1, nil, nil)
+	return gasInfo, result, err
 }
 
-// Context with current {check, deliver}State of the app used by tests.
-func (app *BaseApp) NewContext(isCheckTx bool, header tmproto.Header) sdk.Context {
+func (app *BaseApp) SimTxFinalizeBlock(txEncoder sdk.TxEncoder, tx sdk.Tx) (sdk.GasInfo, *sdk.Result, error) {
+	// See comment for Check().
+	bz, err := txEncoder(tx)
+	if err != nil {
+		return sdk.GasInfo{}, nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "%s", err)
+	}
+
+	gasInfo, result, _, err := app.RunTx(execModeFinalize, bz, tx, -1, nil, nil)
+	return gasInfo, result, err
+}
+
+// SimWriteState is an entrypoint for simulations only. They are not executed during the normal ABCI finalize
+// block step but later. Therefore, an extra call to the root multi-store (app.cms) is required to write the changes.
+func (app *BaseApp) SimWriteState() {
+	app.stateManager.GetState(execModeFinalize).MultiStore.Write()
+}
+
+// NewContextLegacy returns a new sdk.Context with the provided header
+func (app *BaseApp) NewContextLegacy(isCheckTx bool, header cmtproto.Header) sdk.Context {
 	if isCheckTx {
-		return sdk.NewContext(app.checkState.ms, header, true, app.logger).
-			WithMinGasPrices(app.minGasPrices)
+		return sdk.NewContext(app.stateManager.GetState(execModeCheck).MultiStore, header, true, app.logger).
+			WithMinGasPrices(app.gasConfig.MinGasPrices)
 	}
 
-	return sdk.NewContext(app.deliverState.ms, header, false, app.logger)
+	return sdk.NewContext(app.stateManager.GetState(execModeFinalize).MultiStore, header, false, app.logger)
 }
 
-func (app *BaseApp) NewUncachedContext(isCheckTx bool, header tmproto.Header) sdk.Context {
+// NewContext returns a new sdk.Context with a empty header
+func (app *BaseApp) NewContext(isCheckTx bool) sdk.Context {
+	return app.NewContextLegacy(isCheckTx, cmtproto.Header{})
+}
+
+func (app *BaseApp) NewUncachedContext(isCheckTx bool, header cmtproto.Header) sdk.Context {
 	return sdk.NewContext(app.cms, header, isCheckTx, app.logger)
+}
+
+func (app *BaseApp) GetContextForFinalizeBlock(txBytes []byte) sdk.Context {
+	return app.getContextForTx(execModeFinalize, txBytes, -1)
+}
+
+func (app *BaseApp) GetContextForCheckTx(txBytes []byte) sdk.Context {
+	return app.getContextForTx(execModeCheck, txBytes, -1)
 }

@@ -1,8 +1,9 @@
 package keyring
 
 import (
-	"fmt"
 	"strings"
+
+	"github.com/cockroachdb/errors"
 
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
 )
@@ -21,13 +22,13 @@ func NewSigningAlgoFromString(str string, algoList SigningAlgoList) (SignatureAl
 			return algo, nil
 		}
 	}
-	return nil, fmt.Errorf("provided algorithm %q is not supported", str)
+	return nil, errors.Wrap(ErrUnsupportedSigningAlgo, str)
 }
 
 // SigningAlgoList is a slice of signature algorithms
 type SigningAlgoList []SignatureAlgo
 
-// Contains returns true if the SigningAlgoList the given SignatureAlgo.
+// Contains returns true if the SigningAlgoList contains the given SignatureAlgo.
 func (sal SigningAlgoList) Contains(algo SignatureAlgo) bool {
 	for _, cAlgo := range sal {
 		if cAlgo.Name() == algo.Name() {

@@ -6,7 +6,7 @@ package authz
 import (
 	fmt "fmt"
 	_ "github.com/cosmos/cosmos-proto"
-	proto "github.com/gogo/protobuf/proto"
+	proto "github.com/cosmos/gogoproto/proto"
 	io "io"
 	math "math"
 	math_bits "math/bits"
@@ -25,7 +25,7 @@ const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
 // EventGrant is emitted on Msg/Grant
 type EventGrant struct {
-	// Msg type URL for which an autorization is granted
+	// Msg type URL for which an authorization is granted
 	MsgTypeUrl string `protobuf:"bytes,2,opt,name=msg_type_url,json=msgTypeUrl,proto3" json:"msg_type_url,omitempty"`
 	// Granter account address
 	Granter string `protobuf:"bytes,3,opt,name=granter,proto3" json:"granter,omitempty"`
@@ -89,7 +89,7 @@ func (m *EventGrant) GetGrantee() string {
 
 // EventRevoke is emitted on Msg/Revoke
 type EventRevoke struct {
-	// Msg type URL for which an autorization is revoked
+	// Msg type URL for which an authorization is revoked
 	MsgTypeUrl string `protobuf:"bytes,2,opt,name=msg_type_url,json=msgTypeUrl,proto3" json:"msg_type_url,omitempty"`
 	// Granter account address
 	Granter string `protobuf:"bytes,3,opt,name=granter,proto3" json:"granter,omitempty"`

@@ -2,15 +2,16 @@ package keys
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/tendermint/tendermint/libs/cli"
 	"sigs.k8s.io/yaml"
 
+	"github.com/cosmos/cosmos-sdk/client/flags"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/bech32"
 )
@@ -29,10 +30,6 @@ func bech32Prefixes(config *sdk.Config) []string {
 type hexOutput struct {
 	Human string `json:"human"`
 	Bytes string `json:"bytes"`
-}
-
-func (ho hexOutput) String() string {
-	return fmt.Sprintf("Human readable part: %v\nBytes (hex): %s", ho.Human, ho.Bytes)
 }
 
 func newHexOutput(human string, bs []byte) hexOutput {
@@ -57,16 +54,6 @@ func newBech32Output(config *sdk.Config, bs []byte) bech32Output {
 	}
 
 	return out
-}
-
-func (bo bech32Output) String() string {
-	out := make([]string, len(bo.Formats))
-
-	for i, format := range bo.Formats {
-		out[i] = fmt.Sprintf("  - %s", format)
-	}
-
-	return fmt.Sprintf("Bech32 Formats:\n%s", strings.Join(out, "\n"))
 }
 
 // ParseKeyStringCommand parses an address from hex to bech32 and vice versa.
@@ -97,8 +84,8 @@ func doParseKey(cmd *cobra.Command, config *sdk.Config, args []string) error {
 		return errors.New("couldn't parse empty input")
 	}
 
-	output, _ := cmd.Flags().GetString(cli.OutputFlag)
-	if !(runFromBech32(outstream, addr, output) || runFromHex(config, outstream, addr, output)) {
+	output, _ := cmd.Flags().GetString(flags.FlagOutput)
+	if !runFromBech32(outstream, addr, output) && !runFromHex(config, outstream, addr, output) {
 		return errors.New("couldn't find valid bech32 nor hex data")
 	}
 
@@ -129,18 +116,18 @@ func runFromHex(config *sdk.Config, w io.Writer, hexstr, output string) bool {
 	return true
 }
 
-func displayParseKeyInfo(w io.Writer, stringer fmt.Stringer, output string) {
+func displayParseKeyInfo(w io.Writer, value any, output string) {
 	var (
 		err error
 		out []byte
 	)
 
 	switch output {
-	case OutputFormatText:
-		out, err = yaml.Marshal(&stringer)
+	case flags.OutputFormatText:
+		out, err = yaml.Marshal(&value)
 
-	case OutputFormatJSON:
-		out, err = KeysCdc.MarshalJSON(stringer)
+	case flags.OutputFormatJSON:
+		out, err = json.Marshal(&value)
 	}
 
 	if err != nil {

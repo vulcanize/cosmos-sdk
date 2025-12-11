@@ -1,9 +1,9 @@
-// +build libsecp256k1
+//go:build libsecp256k1_sdk
 
 package secp256k1
 
 import (
-	"github.com/tendermint/tendermint/crypto"
+	"github.com/cometbft/cometbft/crypto"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1/internal/secp256k1"
 )
@@ -14,13 +14,13 @@ func (privKey *PrivKey) Sign(msg []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	// we do not need v  in r||s||v:
+	// we do not need v in r||s||v:
 	rs := rsv[:len(rsv)-1]
 	return rs, nil
 }
 
 // VerifySignature validates the signature.
 // The msg will be hashed prior to signature verification.
-func (pubKey *PrivKey) VerifySignature(msg []byte, sig []byte) bool {
-	return secp256k1.VerifySignature(pubKey.Key, crypto.Sha256(msg), sig)
+func (pubKey *PubKey) VerifySignature(msg, sigStr []byte) bool {
+	return secp256k1.VerifySignature(pubKey.Bytes(), crypto.Sha256(msg), sigStr)
 }

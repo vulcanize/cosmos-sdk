@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	tmbytes "github.com/tendermint/tendermint/libs/bytes"
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -22,9 +21,7 @@ func TestDefaultGenesisState(t *testing.T) {
 }
 
 func TestNewGenesisState(t *testing.T) {
-	var (
-		evidence []exported.Evidence
-	)
+	var evidence []exported.Evidence
 
 	testCases := []struct {
 		msg      string
@@ -126,7 +123,7 @@ func TestGenesisStateValidate(t *testing.T) {
 }
 
 func TestUnpackInterfaces(t *testing.T) {
-	var gs = types.GenesisState{
+	gs := types.GenesisState{
 		Evidence: []*codectypes.Any{{}},
 	}
 
@@ -149,7 +146,6 @@ func TestUnpackInterfaces(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(fmt.Sprintf("Case %s", tc.msg), func(t *testing.T) {
-
 			if tc.expPass {
 				require.NoError(t, gs.UnpackInterfaces(tc.unpacker))
 			} else {
@@ -163,23 +159,19 @@ type TestEvidence struct{}
 
 var _ exported.Evidence = &TestEvidence{}
 
-func (*TestEvidence) Route() string {
-	return "test-route"
-}
-
-func (*TestEvidence) Type() string {
-	return "test-type"
-}
-
 func (*TestEvidence) String() string {
 	return "test-string"
+}
+
+func (*TestEvidence) Route() string {
+	return "test-route"
 }
 
 func (*TestEvidence) ProtoMessage() {}
 func (*TestEvidence) Reset()        {}
 
-func (*TestEvidence) Hash() tmbytes.HexBytes {
-	return tmbytes.HexBytes([]byte("test-hash"))
+func (*TestEvidence) Hash() []byte {
+	return []byte("test-hash")
 }
 
 func (*TestEvidence) ValidateBasic() error {

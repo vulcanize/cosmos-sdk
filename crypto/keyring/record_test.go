@@ -4,13 +4,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/stretchr/testify/suite"
 
+	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
-
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 )
 
@@ -78,7 +77,6 @@ func (s *RecordTestSuite) TestLocalRecordMarshaling() {
 	anyPrivKey, err := codectypes.NewAnyWithValue(s.priv)
 	s.Require().NoError(err)
 	s.Require().Equal(localRecord2.PrivKey, anyPrivKey)
-	s.Require().Equal(localRecord2.PrivKeyType, s.priv.Type())
 }
 
 func (s *RecordTestSuite) TestLedgerRecordMarshaling() {

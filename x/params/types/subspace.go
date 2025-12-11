@@ -2,11 +2,13 @@ package types
 
 import (
 	"fmt"
+	"maps"
 	"reflect"
 
+	"cosmossdk.io/store/prefix"
+	storetypes "cosmossdk.io/store/types"
+
 	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/store/prefix"
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -31,7 +33,7 @@ type Subspace struct {
 }
 
 // NewSubspace constructs a store with namestore
-func NewSubspace(cdc codec.BinaryCodec, legacyAmino *codec.LegacyAmino, key storetypes.StoreKey, tkey storetypes.StoreKey, name string) Subspace {
+func NewSubspace(cdc codec.BinaryCodec, legacyAmino *codec.LegacyAmino, key, tkey storetypes.StoreKey, name string) Subspace {
 	return Subspace{
 		cdc:         cdc,
 		legacyAmino: legacyAmino,
@@ -50,15 +52,13 @@ func (s Subspace) HasKeyTable() bool {
 // WithKeyTable initializes KeyTable and returns modified Subspace
 func (s Subspace) WithKeyTable(table KeyTable) Subspace {
 	if table.m == nil {
-		panic("SetKeyTable() called with nil KeyTable")
+		panic("WithKeyTable() called with nil KeyTable")
 	}
 	if len(s.table.m) != 0 {
-		panic("SetKeyTable() called on already initialized Subspace")
+		panic("WithKeyTable() called on already initialized Subspace")
 	}
 
-	for k, v := range table.m {
-		s.table.m[k] = v
-	}
+	maps.Copy(s.table.m, table.m)
 
 	// Allocate additional capacity for Subspace.name
 	// So we don't have to allocate extra space each time appending to the key
@@ -70,14 +70,14 @@ func (s Subspace) WithKeyTable(table KeyTable) Subspace {
 }
 
 // Returns a KVStore identical with ctx.KVStore(s.key).Prefix()
-func (s Subspace) kvStore(ctx sdk.Context) sdk.KVStore {
+func (s Subspace) kvStore(ctx sdk.Context) storetypes.KVStore {
 	// append here is safe, appends within a function won't cause
 	// weird side effects when its singlethreaded
 	return prefix.NewStore(ctx.KVStore(s.key), append(s.name, '/'))
 }
 
 // Returns a transient store for modification
-func (s Subspace) transientStore(ctx sdk.Context) sdk.KVStore {
+func (s Subspace) transientStore(ctx sdk.Context) storetypes.KVStore {
 	// append here is safe, appends within a function won't cause
 	// weird side effects when its singlethreaded
 	return prefix.NewStore(ctx.TransientStore(s.tkey), append(s.name, '/'))
@@ -85,14 +85,14 @@ func (s Subspace) transientStore(ctx sdk.Context) sdk.KVStore {
 
 // Validate attempts to validate a parameter value by its key. If the key is not
 // registered or if the validation of the value fails, an error is returned.
-func (s Subspace) Validate(ctx sdk.Context, key []byte, value interface{}) error {
+func (s Subspace) Validate(ctx sdk.Context, key []byte, value any) error {
 	attr, ok := s.table.m[string(key)]
 	if !ok {
 		return fmt.Errorf("parameter %s not registered", key)
 	}
 
 	if err := attr.vfn(value); err != nil {
-		return fmt.Errorf("invalid parameter value: %s", err)
+		return fmt.Errorf("invalid parameter value: %w", err)
 	}
 
 	return nil
@@ -100,7 +100,7 @@ func (s Subspace) Validate(ctx sdk.Context, key []byte, value interface{}) error
 
 // Get queries for a parameter by key from the Subspace's KVStore and sets the
 // value to the provided pointer. If the value does not exist, it will panic.
-func (s Subspace) Get(ctx sdk.Context, key []byte, ptr interface{}) {
+func (s Subspace) Get(ctx sdk.Context, key []byte, ptr any) {
 	s.checkType(key, ptr)
 
 	store := s.kvStore(ctx)
@@ -114,7 +114,7 @@ func (s Subspace) Get(ctx sdk.Context, key []byte, ptr interface{}) {
 // GetIfExists queries for a parameter by key from the Subspace's KVStore and
 // sets the value to the provided pointer. If the value does not exist, it will
 // perform a no-op.
-func (s Subspace) GetIfExists(ctx sdk.Context, key []byte, ptr interface{}) {
+func (s Subspace) GetIfExists(ctx sdk.Context, key []byte, ptr any) {
 	store := s.kvStore(ctx)
 	bz := store.Get(key)
 	if bz == nil {
@@ -134,7 +134,7 @@ func (s Subspace) GetIfExists(ctx sdk.Context, key []byte, ptr interface{}) {
 func (s Subspace) IterateKeys(ctx sdk.Context, cb func(key []byte) bool) {
 	store := s.kvStore(ctx)
 
-	iter := sdk.KVStorePrefixIterator(store, nil)
+	iter := storetypes.KVStorePrefixIterator(store, nil)
 	defer iter.Close()
 
 	for ; iter.Valid(); iter.Next() {
@@ -163,8 +163,8 @@ func (s Subspace) Modified(ctx sdk.Context, key []byte) bool {
 	return tstore.Has(key)
 }
 
-// checkType verifies that the provided key and value are comptable and registered.
-func (s Subspace) checkType(key []byte, value interface{}) {
+// checkType verifies that the provided key and value are compatible and registered.
+func (s Subspace) checkType(key []byte, value any) {
 	attr, ok := s.table.m[string(key)]
 	if !ok {
 		panic(fmt.Sprintf("parameter %s not registered", key))
@@ -185,7 +185,7 @@ func (s Subspace) checkType(key []byte, value interface{}) {
 // been registered. It will panic if the parameter type has not been registered
 // or if the value cannot be encoded. A change record is also set in the Subspace's
 // transient KVStore to mark the parameter as modified.
-func (s Subspace) Set(ctx sdk.Context, key []byte, value interface{}) {
+func (s Subspace) Set(ctx sdk.Context, key []byte, value any) {
 	s.checkType(key, value)
 	store := s.kvStore(ctx)
 
@@ -240,6 +240,15 @@ func (s Subspace) GetParamSet(ctx sdk.Context, ps ParamSet) {
 	}
 }
 
+// GetParamSetIfExists iterates through each ParamSetPair where for each pair, it will
+// retrieve the value and set it to the corresponding value pointer provided
+// in the ParamSetPair by calling Subspace#GetIfExists.
+func (s Subspace) GetParamSetIfExists(ctx sdk.Context, ps ParamSet) {
+	for _, pair := range ps.ParamSetPairs() {
+		s.GetIfExists(ctx, pair.Key, pair.Value)
+	}
+}
+
 // SetParamSet iterates through each ParamSetPair and sets the value with the
 // corresponding parameter key in the Subspace's KVStore.
 func (s Subspace) SetParamSet(ctx sdk.Context, ps ParamSet) {
@@ -269,7 +278,7 @@ type ReadOnlySubspace struct {
 }
 
 // Get delegates a read-only Get call to the Subspace.
-func (ros ReadOnlySubspace) Get(ctx sdk.Context, key []byte, ptr interface{}) {
+func (ros ReadOnlySubspace) Get(ctx sdk.Context, key []byte, ptr any) {
 	ros.s.Get(ctx, key, ptr)
 }
 

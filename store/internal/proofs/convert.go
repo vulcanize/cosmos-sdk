@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"math/bits"
 
-	ics23 "github.com/confio/ics23/go"
-	"github.com/tendermint/tendermint/proto/tendermint/crypto"
+	cmtprotocrypto "github.com/cometbft/cometbft/proto/tendermint/crypto"
+	ics23 "github.com/cosmos/ics23/go"
 )
 
 // ConvertExistenceProof will convert the given proof into a valid
@@ -13,7 +13,7 @@ import (
 //
 // This is the simplest case of the range proof and we will focus on
 // demoing compatibility here
-func ConvertExistenceProof(p *crypto.Proof, key, value []byte) (*ics23.ExistenceProof, error) {
+func ConvertExistenceProof(p *cmtprotocrypto.Proof, key, value []byte) (*ics23.ExistenceProof, error) {
 	path, err := convertInnerOps(p)
 	if err != nil {
 		return nil, err
@@ -28,7 +28,7 @@ func ConvertExistenceProof(p *crypto.Proof, key, value []byte) (*ics23.Existence
 	return proof, nil
 }
 
-// this is adapted from merkle/hash.go:leafHash()
+// convertLeafOp is adapted from merkle/hash.go:leafHash()
 // and merkle/simple_map.go:KVPair.Bytes()
 func convertLeafOp() *ics23.LeafOp {
 	prefix := []byte{0}
@@ -42,7 +42,7 @@ func convertLeafOp() *ics23.LeafOp {
 	}
 }
 
-func convertInnerOps(p *crypto.Proof) ([]*ics23.InnerOp, error) {
+func convertInnerOps(p *cmtprotocrypto.Proof) ([]*ics23.InnerOp, error) {
 	inners := make([]*ics23.InnerOp, 0, len(p.Aunts))
 	path := buildPath(p.Index, p.Total)
 
@@ -67,7 +67,7 @@ func convertInnerOps(p *crypto.Proof) ([]*ics23.InnerOp, error) {
 }
 
 // buildPath returns a list of steps from leaf to root
-// in each step, true means index is left side, false index is right side
+// in each step, true means index is left side, false means index is right side
 // code adapted from merkle/simple_proof.go:computeHashFromAunts
 func buildPath(idx, total int64) []bool {
 	if total < 2 {

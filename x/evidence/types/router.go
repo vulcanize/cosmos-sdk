@@ -1,6 +1,7 @@
 package types
 
 import (
+	"context"
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -12,7 +13,7 @@ type (
 	// for executing all corresponding business logic necessary for verifying the
 	// evidence as valid. In addition, the Handler may execute any necessary
 	// slashing and potential jailing.
-	Handler func(sdk.Context, exported.Evidence) error
+	Handler func(context.Context, exported.Evidence) error
 
 	// Router defines a contract for which any Evidence handling module must
 	// implement in order to route Evidence to registered Handlers.
@@ -50,7 +51,7 @@ func (rtr router) Sealed() bool {
 	return rtr.sealed
 }
 
-// AddRoute adds a governance handler for a given path. It returns the Router
+// AddRoute adds an evidence handler for a given path. It returns the Router
 // so AddRoute calls can be linked. It will panic if the router is sealed.
 func (rtr *router) AddRoute(path string, h Handler) Router {
 	if rtr.sealed {

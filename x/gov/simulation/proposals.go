@@ -3,7 +3,6 @@ package simulation
 import (
 	"math/rand"
 
-	simappparams "github.com/cosmos/cosmos-sdk/simapp/params"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 	"github.com/cosmos/cosmos-sdk/x/gov/types/v1beta1"
@@ -11,21 +10,45 @@ import (
 )
 
 // OpWeightSubmitTextProposal app params key for text proposal
+// will be removed in the future
 const OpWeightSubmitTextProposal = "op_weight_submit_text_proposal"
 
-// ProposalContents defines the module weighted proposals' contents
-func ProposalContents() []simtypes.WeightedProposalContent {
-	return []simtypes.WeightedProposalContent{
-		simulation.NewWeightedProposalContent(
-			OpWeightMsgDeposit,
-			simappparams.DefaultWeightTextProposal,
-			SimulateTextProposalContent,
+// ProposalMsgs defines the module weighted proposals' contents
+// will be removed in the future
+func ProposalMsgs() []simtypes.WeightedProposalMsg {
+	return []simtypes.WeightedProposalMsg{
+		simulation.NewWeightedProposalMsg(
+			OpWeightSubmitTextProposal,
+			DefaultWeightTextProposal,
+			SimulateTextProposal,
 		),
 	}
 }
 
-// SimulateTextProposalContent returns a random text proposal content.
-func SimulateTextProposalContent(r *rand.Rand, _ sdk.Context, _ []simtypes.Account) simtypes.Content {
+// SimulateTextProposal returns a random text proposal content.
+// A text proposal is a proposal that contains no msgs.
+// will be removed in the future
+func SimulateTextProposal(r *rand.Rand, _ sdk.Context, _ []simtypes.Account) sdk.Msg {
+	return nil
+}
+
+// ProposalContents defines the module weighted proposals' contents
+//
+//nolint:staticcheck // used for legacy testing
+func ProposalContents() []simtypes.WeightedProposalContent {
+	return []simtypes.WeightedProposalContent{
+		simulation.NewWeightedProposalContent(
+			OpWeightMsgDeposit,
+			DefaultWeightTextProposal,
+			SimulateLegacyTextProposalContent,
+		),
+	}
+}
+
+// SimulateLegacyTextProposalContent returns a random text proposal content.
+//
+//nolint:staticcheck // used for legacy testing
+func SimulateLegacyTextProposalContent(r *rand.Rand, _ sdk.Context, _ []simtypes.Account) simtypes.Content {
 	return v1beta1.NewTextProposal(
 		simtypes.RandStringOfLength(r, 140),
 		simtypes.RandStringOfLength(r, 5000),

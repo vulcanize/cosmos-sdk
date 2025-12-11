@@ -4,18 +4,18 @@ import (
 	"crypto/rand"
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/store/cachekv"
-
-	"github.com/stretchr/testify/require"
-	dbm "github.com/tendermint/tm-db"
-
+	dbm "github.com/cosmos/cosmos-db"
 	tiavl "github.com/cosmos/iavl"
+	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/store/dbadapter"
-	"github.com/cosmos/cosmos-sdk/store/gaskv"
-	"github.com/cosmos/cosmos-sdk/store/iavl"
-	"github.com/cosmos/cosmos-sdk/store/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"cosmossdk.io/log"
+	"cosmossdk.io/store/cachekv"
+	"cosmossdk.io/store/dbadapter"
+	"cosmossdk.io/store/gaskv"
+	"cosmossdk.io/store/iavl"
+	"cosmossdk.io/store/transient"
+	"cosmossdk.io/store/types"
+	"cosmossdk.io/store/wrapper"
 )
 
 // copied from iavl/store_test.go
@@ -31,6 +31,7 @@ type kvpair struct {
 }
 
 func genRandomKVPairs(t *testing.T) []kvpair {
+	t.Helper()
 	kvps := make([]kvpair, 20)
 
 	for i := 0; i < 20; i++ {
@@ -46,6 +47,7 @@ func genRandomKVPairs(t *testing.T) []kvpair {
 }
 
 func setRandomKVPairs(t *testing.T, store types.KVStore) []kvpair {
+	t.Helper()
 	kvps := genRandomKVPairs(t)
 	for _, kvp := range kvps {
 		store.Set(kvp.key, kvp.value)
@@ -53,7 +55,54 @@ func setRandomKVPairs(t *testing.T, store types.KVStore) []kvpair {
 	return kvps
 }
 
+func setRandomObjKVPairs(t *testing.T, store types.ObjKVStore) []kvpair {
+	t.Helper()
+	kvps := genRandomKVPairs(t)
+	for _, kvp := range kvps {
+		store.Set(kvp.key, kvp.value)
+	}
+	return kvps
+}
+
+func TestObjStorePrefix(t *testing.T) {
+	baseStore := transient.NewObjStore()
+	prefix := []byte("test")
+	prefixStore := NewObjStore(baseStore, prefix)
+	prefixPrefixStore := NewObjStore(prefixStore, []byte("prefix"))
+
+	require.Panics(t, func() { prefixStore.Get(nil) })
+	require.Panics(t, func() { prefixStore.Set(nil, []byte{}) })
+
+	kvps := setRandomObjKVPairs(t, prefixPrefixStore)
+
+	for i := 0; i < 20; i++ {
+		key := kvps[i].key
+		value := kvps[i].value
+		require.True(t, prefixPrefixStore.Has(key))
+		require.Equal(t, value, prefixPrefixStore.Get(key))
+
+		key = append([]byte("prefix"), key...)
+		require.True(t, prefixStore.Has(key))
+		require.Equal(t, value, prefixStore.Get(key))
+		key = append(prefix, key...)
+		require.True(t, baseStore.Has(key))
+		require.Equal(t, value, baseStore.Get(key))
+
+		key = kvps[i].key
+		prefixPrefixStore.Delete(key)
+		require.False(t, prefixPrefixStore.Has(key))
+		require.Nil(t, prefixPrefixStore.Get(key))
+		key = append([]byte("prefix"), key...)
+		require.False(t, prefixStore.Has(key))
+		require.Nil(t, prefixStore.Get(key))
+		key = append(prefix, key...)
+		require.False(t, baseStore.Has(key))
+		require.Nil(t, baseStore.Get(key))
+	}
+}
+
 func testPrefixStore(t *testing.T, baseStore types.KVStore, prefix []byte) {
+	t.Helper()
 	prefixStore := NewStore(baseStore, prefix)
 	prefixPrefixStore := NewStore(prefixStore, []byte("prefix"))
 
@@ -89,9 +138,8 @@ func testPrefixStore(t *testing.T, baseStore types.KVStore, prefix []byte) {
 }
 
 func TestIAVLStorePrefix(t *testing.T) {
-	db := dbm.NewMemDB()
-	tree, err := tiavl.NewMutableTree(db, cacheSize)
-	require.NoError(t, err)
+	db := wrapper.NewDBWrapper(dbm.NewMemDB())
+	tree := tiavl.NewMutableTree(db, cacheSize, false, log.NewNopLogger())
 	iavlStore := iavl.UnsafeNewStore(tree)
 
 	testPrefixStore(t, iavlStore, []byte("test"))
@@ -102,6 +150,32 @@ func TestPrefixKVStoreNoNilSet(t *testing.T) {
 	mem := dbadapter.Store{DB: dbm.NewMemDB()}
 	gasStore := gaskv.NewStore(mem, meter, types.KVGasConfig())
 	require.Panics(t, func() { gasStore.Set([]byte("key"), nil) }, "setting a nil value should panic")
+}
+
+func TestObjPrefixStoreIterate(t *testing.T) {
+	db := dbm.NewMemDB()
+	baseStore := dbadapter.Store{DB: db}
+	prefix := []byte("test")
+	prefixObjStore := NewObjStore(transient.NewObjStore(), prefix)
+
+	setRandomObjKVPairs(t, prefixObjStore)
+
+	bIter := types.KVStorePrefixIterator(baseStore, prefix)
+	objIter := prefixObjStore.Iterator(nil, nil)
+
+	start, end := objIter.Domain()
+	require.Equal(t, start, end)
+
+	for bIter.Valid() && objIter.Valid() {
+		require.Equal(t, bIter.Key(), append(prefix, objIter.Key()...))
+		require.Equal(t, bIter.Value(), objIter.Value())
+
+		bIter.Next()
+		objIter.Next()
+	}
+
+	bIter.Close()
+	objIter.Close()
 }
 
 func TestPrefixStoreIterate(t *testing.T) {
@@ -237,7 +311,7 @@ func TestPrefixStoreReverseIteratorEdgeCase(t *testing.T) {
 	iter.Close()
 }
 
-// Tests below are ported from https://github.com/tendermint/tendermint/blob/master/libs/db/prefix_db_test.go
+// Tests below are ported from https://github.com/cometbft/cometbft-db/blob/main/prefixdb_test.go
 
 func mockStoreWithStuff() types.KVStore {
 	db := dbm.NewMemDB()
@@ -248,40 +322,46 @@ func mockStoreWithStuff() types.KVStore {
 	store.Set(bz("key2"), bz("value2"))
 	store.Set(bz("key3"), bz("value3"))
 	store.Set(bz("something"), bz("else"))
-	store.Set(bz("k"), bz(sdk.PrefixValidator))
+	store.Set(bz("k"), bz("val"))
 	store.Set(bz("ke"), bz("valu"))
 	store.Set(bz("kee"), bz("valuu"))
 	return store
 }
 
-func checkValue(t *testing.T, store types.KVStore, key []byte, expected []byte) {
+func checkValue(t *testing.T, store types.KVStore, key, expected []byte) {
+	t.Helper()
 	bz := store.Get(key)
 	require.Equal(t, expected, bz)
 }
 
 func checkValid(t *testing.T, itr types.Iterator, expected bool) {
+	t.Helper()
 	valid := itr.Valid()
 	require.Equal(t, expected, valid)
 }
 
 func checkNext(t *testing.T, itr types.Iterator, expected bool) {
+	t.Helper()
 	itr.Next()
 	valid := itr.Valid()
 	require.Equal(t, expected, valid)
 }
 
 func checkDomain(t *testing.T, itr types.Iterator, start, end []byte) {
+	t.Helper()
 	ds, de := itr.Domain()
 	require.Equal(t, start, ds)
 	require.Equal(t, end, de)
 }
 
 func checkItem(t *testing.T, itr types.Iterator, key, value []byte) {
+	t.Helper()
 	require.Exactly(t, key, itr.Key())
 	require.Exactly(t, value, itr.Value())
 }
 
 func checkInvalid(t *testing.T, itr types.Iterator) {
+	t.Helper()
 	checkValid(t, itr, false)
 	checkKeyPanics(t, itr)
 	checkValuePanics(t, itr)
@@ -289,14 +369,17 @@ func checkInvalid(t *testing.T, itr types.Iterator) {
 }
 
 func checkKeyPanics(t *testing.T, itr types.Iterator) {
+	t.Helper()
 	require.Panics(t, func() { itr.Key() })
 }
 
 func checkValuePanics(t *testing.T, itr types.Iterator) {
+	t.Helper()
 	require.Panics(t, func() { itr.Value() })
 }
 
 func checkNextPanics(t *testing.T, itr types.Iterator) {
+	t.Helper()
 	require.Panics(t, func() { itr.Next() })
 }
 
@@ -438,7 +521,4 @@ func TestCacheWraps(t *testing.T) {
 
 	cacheWrappedWithTrace := store.CacheWrapWithTrace(nil, nil)
 	require.IsType(t, &cachekv.Store{}, cacheWrappedWithTrace)
-
-	cacheWrappedWithListeners := store.CacheWrapWithListeners(nil, nil)
-	require.IsType(t, &cachekv.Store{}, cacheWrappedWithListeners)
 }

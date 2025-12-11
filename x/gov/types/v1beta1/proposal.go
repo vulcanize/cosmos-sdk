@@ -5,24 +5,27 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
-	"sigs.k8s.io/yaml"
+	"github.com/cosmos/gogoproto/proto"
 
-	"github.com/cosmos/cosmos-sdk/codec/types"
+	errorsmod "cosmossdk.io/errors"
+
+	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/cosmos/cosmos-sdk/x/gov/types"
 )
 
 // DefaultStartingProposalID is 1
 const DefaultStartingProposalID uint64 = 1
 
+// NewProposal creates a new Proposal instance
 func NewProposal(content Content, id uint64, submitTime, depositEndTime time.Time) (Proposal, error) {
 	msg, ok := content.(proto.Message)
 	if !ok {
 		return Proposal{}, fmt.Errorf("%T does not implement proto.Message", content)
 	}
 
-	any, err := types.NewAnyWithValue(msg)
+	any, err := codectypes.NewAnyWithValue(msg)
 	if err != nil {
 		return Proposal{}, err
 	}
@@ -40,12 +43,6 @@ func NewProposal(content Content, id uint64, submitTime, depositEndTime time.Tim
 	return p, nil
 }
 
-// String implements stringer interface
-func (p Proposal) String() string {
-	out, _ := yaml.Marshal(p)
-	return string(out)
-}
-
 // GetContent returns the proposal Content
 func (p Proposal) GetContent() Content {
 	content, ok := p.Content.GetCachedValue().(Content)
@@ -55,6 +52,7 @@ func (p Proposal) GetContent() Content {
 	return content
 }
 
+// ProposalType returns the proposal type
 func (p Proposal) ProposalType() string {
 	content := p.GetContent()
 	if content == nil {
@@ -63,6 +61,7 @@ func (p Proposal) ProposalType() string {
 	return content.ProposalType()
 }
 
+// ProposalRoute returns the proposal route
 func (p Proposal) ProposalRoute() string {
 	content := p.GetContent()
 	if content == nil {
@@ -71,6 +70,7 @@ func (p Proposal) ProposalRoute() string {
 	return content.ProposalRoute()
 }
 
+// GetTitle gets the proposal's title
 func (p Proposal) GetTitle() string {
 	content := p.GetContent()
 	if content == nil {
@@ -80,7 +80,7 @@ func (p Proposal) GetTitle() string {
 }
 
 // UnpackInterfaces implements UnpackInterfacesMessage.UnpackInterfaces
-func (p Proposal) UnpackInterfaces(unpacker types.AnyUnpacker) error {
+func (p Proposal) UnpackInterfaces(unpacker codectypes.AnyUnpacker) error {
 	var content Content
 	return unpacker.UnpackAny(p.Content, &content)
 }
@@ -88,9 +88,9 @@ func (p Proposal) UnpackInterfaces(unpacker types.AnyUnpacker) error {
 // Proposals is an array of proposal
 type Proposals []Proposal
 
-var _ types.UnpackInterfacesMessage = Proposals{}
+var _ codectypes.UnpackInterfacesMessage = Proposals{}
 
-// Equal returns true if two slices (order-dependant) of proposals are equal.
+// Equal returns true if two slices (order-dependent) of proposals are equal.
 func (p Proposals) Equal(other Proposals) bool {
 	if len(p) != len(other) {
 		return false
@@ -117,7 +117,7 @@ func (p Proposals) String() string {
 }
 
 // UnpackInterfaces implements UnpackInterfacesMessage.UnpackInterfaces
-func (p Proposals) UnpackInterfaces(unpacker types.AnyUnpacker) error {
+func (p Proposals) UnpackInterfaces(unpacker codectypes.AnyUnpacker) error {
 	for _, x := range p {
 		err := x.UnpackInterfaces(unpacker)
 		if err != nil {
@@ -136,26 +136,13 @@ func ProposalStatusFromString(str string) (ProposalStatus, error) {
 	return ProposalStatus(num), nil
 }
 
-// Marshal needed for protobuf compatibility
-func (status ProposalStatus) Marshal() ([]byte, error) {
-	return []byte{byte(status)}, nil
-}
-
-// Unmarshal needed for protobuf compatibility
-func (status *ProposalStatus) Unmarshal(data []byte) error {
-	*status = ProposalStatus(data[0])
-	return nil
-}
-
 // Format implements the fmt.Formatter interface.
-// nolint: errcheck
 func (status ProposalStatus) Format(s fmt.State, verb rune) {
 	switch verb {
 	case 's':
-		s.Write([]byte(status.String()))
+		_, _ = s.Write([]byte(status.String()))
 	default:
-		// TODO: Do this conversion more directly
-		s.Write([]byte(fmt.Sprintf("%v", byte(status))))
+		_, _ = fmt.Fprintf(s, "%v", byte(status))
 	}
 }
 
@@ -183,7 +170,7 @@ func (tp *TextProposal) GetTitle() string { return tp.Title }
 func (tp *TextProposal) GetDescription() string { return tp.Description }
 
 // ProposalRoute returns the proposal router key
-func (tp *TextProposal) ProposalRoute() string { return RouterKey }
+func (tp *TextProposal) ProposalRoute() string { return types.RouterKey }
 
 // ProposalType is "Text"
 func (tp *TextProposal) ProposalType() string { return ProposalTypeText }
@@ -191,12 +178,7 @@ func (tp *TextProposal) ProposalType() string { return ProposalTypeText }
 // ValidateBasic validates the content's title and description of the proposal
 func (tp *TextProposal) ValidateBasic() error { return ValidateAbstract(tp) }
 
-// String implements Stringer interface
-func (tp TextProposal) String() string {
-	out, _ := yaml.Marshal(tp)
-	return string(out)
-}
-
+// ValidProposalStatus checks if the proposal status is valid
 func ValidProposalStatus(status ProposalStatus) bool {
 	if status == StatusDepositPeriod ||
 		status == StatusVotingPeriod ||
@@ -213,18 +195,18 @@ func ValidProposalStatus(status ProposalStatus) bool {
 func ValidateAbstract(c Content) error {
 	title := c.GetTitle()
 	if len(strings.TrimSpace(title)) == 0 {
-		return sdkerrors.Wrap(ErrInvalidProposalContent, "proposal title cannot be blank")
+		return errorsmod.Wrap(types.ErrInvalidProposalContent, "proposal title cannot be blank")
 	}
 	if len(title) > MaxTitleLength {
-		return sdkerrors.Wrapf(ErrInvalidProposalContent, "proposal title is longer than max length of %d", MaxTitleLength)
+		return errorsmod.Wrapf(types.ErrInvalidProposalContent, "proposal title is longer than max length of %d", MaxTitleLength)
 	}
 
 	description := c.GetDescription()
 	if len(description) == 0 {
-		return sdkerrors.Wrap(ErrInvalidProposalContent, "proposal description cannot be blank")
+		return errorsmod.Wrap(types.ErrInvalidProposalContent, "proposal description cannot be blank")
 	}
 	if len(description) > MaxDescriptionLength {
-		return sdkerrors.Wrapf(ErrInvalidProposalContent, "proposal description is longer than max length of %d", MaxDescriptionLength)
+		return errorsmod.Wrapf(types.ErrInvalidProposalContent, "proposal description is longer than max length of %d", MaxDescriptionLength)
 	}
 
 	return nil
@@ -245,14 +227,12 @@ func RegisterProposalType(ty string) {
 }
 
 // ContentFromProposalType returns a Content object based on the proposal type.
-func ContentFromProposalType(title, desc, ty string) Content {
-	switch ty {
-	case ProposalTypeText:
-		return NewTextProposal(title, desc)
-
-	default:
-		return nil
+func ContentFromProposalType(title, desc, ty string) (Content, bool) {
+	if strings.EqualFold(ty, ProposalTypeText) {
+		return NewTextProposal(title, desc), true
 	}
+
+	return nil, false
 }
 
 // IsValidProposalType returns a boolean determining if the proposal type is
@@ -265,7 +245,7 @@ func IsValidProposalType(ty string) bool {
 }
 
 // ProposalHandler implements the Handler interface for governance module-based
-// proposals (ie. TextProposal ). Since these are
+// proposals (ie. TextProposal). Since these are
 // merely signaling mechanisms at the moment and do not affect state, it
 // performs a no-op.
 func ProposalHandler(_ sdk.Context, c Content) error {
@@ -275,6 +255,6 @@ func ProposalHandler(_ sdk.Context, c Content) error {
 		return nil
 
 	default:
-		return sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "unrecognized gov proposal type: %s", c.ProposalType())
+		return errorsmod.Wrapf(sdkerrors.ErrUnknownRequest, "unrecognized gov proposal type: %s", c.ProposalType())
 	}
 }

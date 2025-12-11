@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/gogo/protobuf/proto"
+	"github.com/cosmos/gogoproto/proto"
 
 	"github.com/cosmos/cosmos-sdk/codec/unknownproto"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
@@ -22,7 +22,7 @@ func init() {
 			Fee:   99,
 			Nested: &testdata.Nested3B{
 				Id:   3,
-				Name: "3A this one that one there those oens",
+				Name: "3A this one that one there those ones",
 				Age:  4588,
 				B4: []*testdata.Nested4B{
 					{
@@ -45,11 +45,13 @@ func init() {
 func BenchmarkRejectUnknownFields_serial(b *testing.B) {
 	benchmarkRejectUnknownFields(b, false)
 }
+
 func BenchmarkRejectUnknownFields_parallel(b *testing.B) {
 	benchmarkRejectUnknownFields(b, true)
 }
 
 func benchmarkRejectUnknownFields(b *testing.B, parallel bool) {
+	b.Helper()
 	b.ReportAllocs()
 
 	if !parallel {
@@ -82,10 +84,13 @@ func benchmarkRejectUnknownFields(b *testing.B, parallel bool) {
 func BenchmarkProtoUnmarshal_serial(b *testing.B) {
 	benchmarkProtoUnmarshal(b, false)
 }
+
 func BenchmarkProtoUnmarshal_parallel(b *testing.B) {
 	benchmarkProtoUnmarshal(b, true)
 }
+
 func benchmarkProtoUnmarshal(b *testing.B, parallel bool) {
+	b.Helper()
 	b.ReportAllocs()
 
 	if !parallel {

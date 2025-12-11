@@ -14,9 +14,10 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keys/multisig"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	"github.com/cosmos/cosmos-sdk/testutil"
+	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	moduletestutil "github.com/cosmos/cosmos-sdk/types/module/testutil"
 )
 
 func Test_multiSigKey_Properties(t *testing.T) {
@@ -48,11 +49,11 @@ func Test_showKeysCmd(t *testing.T) {
 
 func Test_runShowCmd(t *testing.T) {
 	cmd := ShowKeysCmd()
-	cmd.Flags().AddFlagSet(Commands("home").PersistentFlags())
+	cmd.Flags().AddFlagSet(Commands().PersistentFlags())
 	mockIn := testutil.ApplyMockIODiscardOutErr(cmd)
 
 	kbHome := t.TempDir()
-	cdc := simapp.MakeTestEncodingConfig().Codec
+	cdc := moduletestutil.MakeTestEncodingConfig().Codec
 	kb, err := keyring.New(sdk.KeyringServiceName(), keyring.BackendTest, kbHome, mockIn, cdc)
 	require.NoError(t, err)
 
@@ -71,22 +72,22 @@ func Test_runShowCmd(t *testing.T) {
 	fakeKeyName2 := "runShowCmd_Key2"
 
 	t.Cleanup(func() {
-		kb.Delete("runShowCmd_Key1")
-		kb.Delete("runShowCmd_Key2")
+		cleanupKeys(t, kb, "runShowCmd_Key1")
+		cleanupKeys(t, kb, "runShowCmd_Key2")
 	})
 
 	path := hd.NewFundraiserParams(1, sdk.CoinType, 0).String()
-	_, err = kb.NewAccount(fakeKeyName1, testutil.TestMnemonic, "", path, hd.Secp256k1)
+	_, err = kb.NewAccount(fakeKeyName1, testdata.TestMnemonic, "", path, hd.Secp256k1)
 	require.NoError(t, err)
 
 	path2 := hd.NewFundraiserParams(1, sdk.CoinType, 1).String()
-	_, err = kb.NewAccount(fakeKeyName2, testutil.TestMnemonic, "", path2, hd.Secp256k1)
+	_, err = kb.NewAccount(fakeKeyName2, testdata.TestMnemonic, "", path2, hd.Secp256k1)
 	require.NoError(t, err)
 
 	// Now try single key
 	cmd.SetArgs([]string{
 		fakeKeyName1,
-		fmt.Sprintf("--%s=%s", flags.FlagHome, kbHome),
+		fmt.Sprintf("--%s=%s", flags.FlagKeyringDir, kbHome),
 		fmt.Sprintf("--%s=", FlagBechPrefix),
 		fmt.Sprintf("--%s=%s", flags.FlagKeyringBackend, keyring.BackendTest),
 	})
@@ -94,7 +95,7 @@ func Test_runShowCmd(t *testing.T) {
 
 	cmd.SetArgs([]string{
 		fakeKeyName1,
-		fmt.Sprintf("--%s=%s", flags.FlagHome, kbHome),
+		fmt.Sprintf("--%s=%s", flags.FlagKeyringDir, kbHome),
 		fmt.Sprintf("--%s=%s", FlagBechPrefix, sdk.PrefixAccount),
 		fmt.Sprintf("--%s=%s", flags.FlagKeyringBackend, keyring.BackendTest),
 	})
@@ -109,7 +110,7 @@ func Test_runShowCmd(t *testing.T) {
 	require.NoError(t, err)
 	cmd.SetArgs([]string{
 		addr.String(),
-		fmt.Sprintf("--%s=%s", flags.FlagHome, kbHome),
+		fmt.Sprintf("--%s=%s", flags.FlagKeyringDir, kbHome),
 		fmt.Sprintf("--%s=%s", FlagBechPrefix, sdk.PrefixAccount),
 		fmt.Sprintf("--%s=%s", flags.FlagKeyringBackend, keyring.BackendTest),
 	})
@@ -119,16 +120,28 @@ func Test_runShowCmd(t *testing.T) {
 	// Now try multisig key - set bech to acc
 	cmd.SetArgs([]string{
 		fakeKeyName1, fakeKeyName2,
-		fmt.Sprintf("--%s=%s", flags.FlagHome, kbHome),
+		fmt.Sprintf("--%s=%s", flags.FlagKeyringDir, kbHome),
 		fmt.Sprintf("--%s=%s", FlagBechPrefix, sdk.PrefixAccount),
 		fmt.Sprintf("--%s=0", flagMultiSigThreshold),
 		fmt.Sprintf("--%s=%s", flags.FlagKeyringBackend, keyring.BackendTest),
 	})
 	require.EqualError(t, cmd.ExecuteContext(ctx), "threshold must be a positive integer")
 
+	// Now try multisig key duplicate
+	_, mockOut := testutil.ApplyMockIO(cmd)
+	cmd.SetArgs([]string{
+		fakeKeyName1, fakeKeyName1,
+		fmt.Sprintf("--%s=%s", flags.FlagKeyringDir, kbHome),
+		fmt.Sprintf("--%s=%s", FlagBechPrefix, sdk.PrefixAccount),
+		fmt.Sprintf("--%s=2", flagMultiSigThreshold),
+		fmt.Sprintf("--%s=%s", flags.FlagKeyringBackend, keyring.BackendTest),
+	})
+	require.NoError(t, cmd.ExecuteContext(ctx))
+	require.Contains(t, mockOut.String(), fmt.Sprintf("WARNING: duplicate keys found: %s", fakeKeyName1))
+
 	cmd.SetArgs([]string{
 		fakeKeyName1, fakeKeyName2,
-		fmt.Sprintf("--%s=%s", flags.FlagHome, kbHome),
+		fmt.Sprintf("--%s=%s", flags.FlagKeyringDir, kbHome),
 		fmt.Sprintf("--%s=%s", FlagBechPrefix, sdk.PrefixAccount),
 		fmt.Sprintf("--%s=2", flagMultiSigThreshold),
 		fmt.Sprintf("--%s=%s", flags.FlagKeyringBackend, keyring.BackendTest),
@@ -138,7 +151,7 @@ func Test_runShowCmd(t *testing.T) {
 	// Now try multisig key - set bech to acc + threshold=2
 	cmd.SetArgs([]string{
 		fakeKeyName1, fakeKeyName2,
-		fmt.Sprintf("--%s=%s", flags.FlagHome, kbHome),
+		fmt.Sprintf("--%s=%s", flags.FlagKeyringDir, kbHome),
 		fmt.Sprintf("--%s=acc", FlagBechPrefix),
 		fmt.Sprintf("--%s=true", FlagDevice),
 		fmt.Sprintf("--%s=2", flagMultiSigThreshold),
@@ -148,7 +161,7 @@ func Test_runShowCmd(t *testing.T) {
 
 	cmd.SetArgs([]string{
 		fakeKeyName1, fakeKeyName2,
-		fmt.Sprintf("--%s=%s", flags.FlagHome, kbHome),
+		fmt.Sprintf("--%s=%s", flags.FlagKeyringDir, kbHome),
 		fmt.Sprintf("--%s=val", FlagBechPrefix),
 		fmt.Sprintf("--%s=true", FlagDevice),
 		fmt.Sprintf("--%s=2", flagMultiSigThreshold),
@@ -158,7 +171,7 @@ func Test_runShowCmd(t *testing.T) {
 
 	cmd.SetArgs([]string{
 		fakeKeyName1, fakeKeyName2,
-		fmt.Sprintf("--%s=%s", flags.FlagHome, kbHome),
+		fmt.Sprintf("--%s=%s", flags.FlagKeyringDir, kbHome),
 		fmt.Sprintf("--%s=val", FlagBechPrefix),
 		fmt.Sprintf("--%s=true", FlagDevice),
 		fmt.Sprintf("--%s=2", flagMultiSigThreshold),
@@ -166,6 +179,35 @@ func Test_runShowCmd(t *testing.T) {
 		fmt.Sprintf("--%s=%s", flags.FlagKeyringBackend, keyring.BackendTest),
 	})
 	require.EqualError(t, cmd.ExecuteContext(ctx), "the device flag (-d) can only be used for addresses not pubkeys")
+
+	cmd.SetArgs([]string{
+		fakeKeyName1,
+		fmt.Sprintf("--%s=%s", flags.FlagKeyringDir, kbHome),
+		fmt.Sprintf("--%s=true", FlagAddress),
+		fmt.Sprintf("--%s=true", flagQRCode),
+		// we have to reset following flags as they were set to true above, and won't be auto reset to false if we skip to specify these flags.
+		// Note: this maybe a bug about spf13/cobra as cmd.flags's value won't be reset by changing cmd.args with cmd.SetArgs.
+		fmt.Sprintf("--%s=false", FlagDevice),
+		fmt.Sprintf("--%s=false", FlagPublicKey),
+		fmt.Sprintf("--%s=%s", flags.FlagKeyringBackend, keyring.BackendTest),
+	})
+
+	// try fetch by name
+	require.NoError(t, cmd.ExecuteContext(ctx))
+
+	cmd.SetArgs([]string{
+		fakeKeyName1, fakeKeyName2,
+		fmt.Sprintf("--%s=%s", flags.FlagKeyringDir, kbHome),
+		fmt.Sprintf("--%s=true", FlagAddress),
+		fmt.Sprintf("--%s=true", flagQRCode),
+		fmt.Sprintf("--%s=2", flagMultiSigThreshold),
+		fmt.Sprintf("--%s=false", FlagDevice),
+		fmt.Sprintf("--%s=false", FlagPublicKey),
+		fmt.Sprintf("--%s=%s", flags.FlagKeyringBackend, keyring.BackendTest),
+	})
+
+	// try fetch by name
+	require.NoError(t, cmd.ExecuteContext(ctx))
 }
 
 func Test_validateMultisigThreshold(t *testing.T) {
@@ -185,7 +227,6 @@ func Test_validateMultisigThreshold(t *testing.T) {
 		{"1-2", args{2, 1}, true},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			if err := validateMultisigThreshold(tt.args.k, tt.args.nKeys); (err != nil) != tt.wantErr {
 				t.Errorf("validateMultisigThreshold() error = %v, wantErr %v", err, tt.wantErr)
@@ -206,12 +247,11 @@ func Test_getBechKeyOut(t *testing.T) {
 	}{
 		{"empty", args{""}, nil, true},
 		{"wrong", args{"???"}, nil, true},
-		{"acc", args{sdk.PrefixAccount}, keyring.MkAccKeyOutput, false},
-		{"val", args{sdk.PrefixValidator}, keyring.MkValKeyOutput, false},
-		{"cons", args{sdk.PrefixConsensus}, keyring.MkConsKeyOutput, false},
+		{"acc", args{sdk.PrefixAccount}, MkAccKeyOutput, false},
+		{"val", args{sdk.PrefixValidator}, MkValKeyOutput, false},
+		{"cons", args{sdk.PrefixConsensus}, MkConsKeyOutput, false},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := getBechKeyOut(tt.args.bechPrefix)
 			if tt.wantErr {

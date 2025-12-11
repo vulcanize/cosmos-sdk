@@ -1,69 +1,79 @@
 package keys
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
 	"sigs.k8s.io/yaml"
 
+	"github.com/cosmos/cosmos-sdk/client/flags"
 	cryptokeyring "github.com/cosmos/cosmos-sdk/crypto/keyring"
 )
 
-// available output formats.
-const (
-	OutputFormatText = "text"
-	OutputFormatJSON = "json"
-)
+type bechKeyOutFn func(k *cryptokeyring.Record) (KeyOutput, error)
 
-type bechKeyOutFn func(k *cryptokeyring.Record) (cryptokeyring.KeyOutput, error)
-
-func printKeyringRecord(w io.Writer, k *cryptokeyring.Record, bechKeyOut bechKeyOutFn, output string) {
+func printKeyringRecord(w io.Writer, k *cryptokeyring.Record, bechKeyOut bechKeyOutFn, output string) error {
 	ko, err := bechKeyOut(k)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	switch output {
-	case OutputFormatText:
-		printTextRecords(w, []cryptokeyring.KeyOutput{ko})
-
-	case OutputFormatJSON:
-		out, err := KeysCdc.MarshalJSON(ko)
-		if err != nil {
-			panic(err)
+	case flags.OutputFormatText:
+		if err := printTextRecords(w, []KeyOutput{ko}); err != nil {
+			return err
 		}
 
-		fmt.Fprintln(w, string(out))
+	case flags.OutputFormatJSON:
+		out, err := json.Marshal(ko)
+		if err != nil {
+			return err
+		}
+
+		if _, err := fmt.Fprintln(w, string(out)); err != nil {
+			return err
+		}
 	}
+
+	return nil
 }
 
-func printKeyringRecords(w io.Writer, records []*cryptokeyring.Record, output string) {
-	kos, err := cryptokeyring.MkAccKeysOutput(records)
+func printKeyringRecords(w io.Writer, records []*cryptokeyring.Record, output string) error {
+	kos, err := MkAccKeysOutput(records)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	switch output {
-	case OutputFormatText:
-		printTextRecords(w, kos)
-
-	case OutputFormatJSON:
-		// TODO https://github.com/cosmos/cosmos-sdk/issues/8046
-		// Replace AminoCdc with Proto JSON
-		out, err := KeysCdc.MarshalJSON(kos)
-		if err != nil {
-			panic(err)
+	case flags.OutputFormatText:
+		if err := printTextRecords(w, kos); err != nil {
+			return err
 		}
 
-		fmt.Fprintf(w, "%s", out)
+	case flags.OutputFormatJSON:
+		out, err := json.Marshal(kos)
+		if err != nil {
+			return err
+		}
+
+		if _, err := fmt.Fprintf(w, "%s", out); err != nil {
+			return err
+		}
 	}
+
+	return nil
 }
 
-func printTextRecords(w io.Writer, kos []cryptokeyring.KeyOutput) {
+func printTextRecords(w io.Writer, kos []KeyOutput) error {
 	out, err := yaml.Marshal(&kos)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
-	fmt.Fprintln(w, string(out))
+	if _, err := fmt.Fprintln(w, string(out)); err != nil {
+		return err
+	}
+
+	return nil
 }

@@ -26,7 +26,6 @@ func TestHasPermission(t *testing.T) {
 		has = permAddr.HasPermission(tc.permission)
 		require.Equal(t, tc.expectHas, has, "test case #%d", i)
 	}
-
 }
 
 func TestValidatePermissions(t *testing.T) {
@@ -42,7 +41,6 @@ func TestValidatePermissions(t *testing.T) {
 	}
 
 	for i, tc := range cases {
-		i, tc := i, tc
 		t.Run(tc.name, func(t *testing.T) {
 			err := validatePermissions(tc.permissions...)
 			if tc.expectPass {

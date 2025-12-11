@@ -2,23 +2,34 @@ package simulation
 
 import (
 	"encoding/json"
+	"fmt"
 	"math/rand"
 	"time"
 
+	"github.com/cosmos/gogoproto/proto"
+
 	"github.com/cosmos/cosmos-sdk/baseapp"
-	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/auth/migrations/legacytx"
+	"github.com/cosmos/cosmos-sdk/types/kv"
 )
 
+// WeightedProposalContent is a legacy type.
+//
+// Deprecated: Use WeightedProposalMsg instead.
 type WeightedProposalContent interface {
 	AppParamsKey() string                   // key used to retrieve the value of the weight from the simulation application params
 	DefaultWeight() int                     // default weight
 	ContentSimulatorFn() ContentSimulatorFn // content simulator function
 }
 
+// ContentSimulatorFn is a legacy type.
+//
+// Deprecated: Use MsgSimulatorFn instead.
 type ContentSimulatorFn func(r *rand.Rand, ctx sdk.Context, accs []Account) Content
 
+// Content is a legacy type.
+//
+// Deprecated: Use MsgSimulatorFn instead.
 type Content interface {
 	GetTitle() string
 	GetDescription() string
@@ -28,9 +39,17 @@ type Content interface {
 	String() string
 }
 
+type WeightedProposalMsg interface {
+	AppParamsKey() string           // key used to retrieve the value of the weight from the simulation application params
+	DefaultWeight() int             // default weight
+	MsgSimulatorFn() MsgSimulatorFn // msg simulator function
+}
+
+type MsgSimulatorFn func(r *rand.Rand, ctx sdk.Context, accs []Account) sdk.Msg
+
 type SimValFn func(r *rand.Rand) string
 
-type ParamChange interface {
+type LegacyParamChange interface {
 	Subspace() string
 	Key() string
 	SimValue() SimValFn
@@ -50,25 +69,25 @@ type WeightedOperation interface {
 // which details what this fuzzed state machine transition actually did.
 //
 // Operations can optionally provide a list of "FutureOperations" to run later
-// These will be ran at the beginning of the corresponding block.
+// These will be run at the beginning of the corresponding block.
 type Operation func(r *rand.Rand, app *baseapp.BaseApp,
 	ctx sdk.Context, accounts []Account, chainID string) (
 	OperationMsg OperationMsg, futureOps []FutureOperation, err error)
 
 // OperationMsg - structure for operation output
 type OperationMsg struct {
-	Route   string          `json:"route" yaml:"route"`     // msg route (i.e module name)
-	Name    string          `json:"name" yaml:"name"`       // operation name (msg Type or "no-operation")
-	Comment string          `json:"comment" yaml:"comment"` // additional comment
-	OK      bool            `json:"ok" yaml:"ok"`           // success
-	Msg     json.RawMessage `json:"msg" yaml:"msg"`         // JSON encoded msg
+	Route   string `json:"route" yaml:"route"`     // msg route (i.e module name)
+	Name    string `json:"name" yaml:"name"`       // operation name (msg Type or "no-operation")
+	Comment string `json:"comment" yaml:"comment"` // additional comment
+	OK      bool   `json:"ok" yaml:"ok"`           // success
+	Msg     []byte `json:"msg" yaml:"msg"`         // protobuf encoded msg
 }
 
 // NewOperationMsgBasic creates a new operation message from raw input.
-func NewOperationMsgBasic(route, name, comment string, ok bool, msg []byte) OperationMsg {
+func NewOperationMsgBasic(moduleName, msgType, comment string, ok bool, msg []byte) OperationMsg {
 	return OperationMsg{
-		Route:   route,
-		Name:    name,
+		Route:   moduleName,
+		Name:    msgType,
 		Comment: comment,
 		OK:      ok,
 		Msg:     msg,
@@ -76,23 +95,26 @@ func NewOperationMsgBasic(route, name, comment string, ok bool, msg []byte) Oper
 }
 
 // NewOperationMsg - create a new operation message from sdk.Msg
-func NewOperationMsg(msg sdk.Msg, ok bool, comment string, cdc *codec.ProtoCodec) OperationMsg {
-	if legacyMsg, okType := msg.(legacytx.LegacyMsg); okType {
-		return NewOperationMsgBasic(legacyMsg.Route(), legacyMsg.Type(), comment, ok, legacyMsg.GetSignBytes())
+func NewOperationMsg(msg sdk.Msg, ok bool, comment string) OperationMsg {
+	msgType := sdk.MsgTypeURL(msg)
+	moduleName := sdk.GetModuleNameFromTypeURL(msgType)
+	if moduleName == "" {
+		moduleName = msgType
+	}
+	protoBz, err := proto.Marshal(msg)
+	if err != nil {
+		panic(fmt.Errorf("failed to marshal proto message: %w", err))
 	}
 
-	bz := cdc.MustMarshalJSON(msg)
-
-	return NewOperationMsgBasic(sdk.MsgTypeURL(msg), sdk.MsgTypeURL(msg), comment, ok, bz)
-
+	return NewOperationMsgBasic(moduleName, msgType, comment, ok, protoBz)
 }
 
 // NoOpMsg - create a no-operation message
-func NoOpMsg(route, msgType, comment string) OperationMsg {
-	return NewOperationMsgBasic(route, msgType, comment, false, nil)
+func NoOpMsg(moduleName, msgType, comment string) OperationMsg {
+	return NewOperationMsgBasic(moduleName, msgType, comment, false, nil)
 }
 
-// log entry text for this operation msg
+// String logs entry text for this operation msg
 func (om OperationMsg) String() string {
 	out, err := json.Marshal(om)
 	if err != nil {
@@ -122,7 +144,7 @@ func (om OperationMsg) LogEvent(eventLogger func(route, op, evResult string)) {
 	eventLogger(om.Route, om.Name, pass)
 }
 
-// FutureOperation is an operation which will be ran at the beginning of the
+// FutureOperation is an operation which will be run at the beginning of the
 // provided BlockHeight. If both a BlockHeight and BlockTime are specified, it
 // will use the BlockHeight. In the (likely) event that multiple operations
 // are queued at the same block height, they will execute in a FIFO pattern.
@@ -134,14 +156,14 @@ type FutureOperation struct {
 
 // AppParams defines a flat JSON of key/values for all possible configurable
 // simulation parameters. It might contain: operation weights, simulation parameters
-// and flattened module state parameters (i.e not stored under it's respective module name).
+// and flattened module state parameters (i.e not stored under its respective module name).
 type AppParams map[string]json.RawMessage
 
 // GetOrGenerate attempts to get a given parameter by key from the AppParams
 // object. If it exists, it'll be decoded and returned. Otherwise, the provided
 // ParamSimulator is used to generate a random value or default value (eg: in the
 // case of operation weights where Rand is not used).
-func (sp AppParams) GetOrGenerate(_ codec.JSONCodec, key string, ptr interface{}, r *rand.Rand, ps ParamSimulator) {
+func (sp AppParams) GetOrGenerate(key string, ptr any, r *rand.Rand, ps ParamSimulator) {
 	if v, ok := sp[key]; ok && v != nil {
 		err := json.Unmarshal(v, ptr)
 		if err != nil {
@@ -173,3 +195,7 @@ type Params interface {
 	LivenessTransitionMatrix() TransitionMatrix
 	BlockSizeTransitionMatrix() TransitionMatrix
 }
+
+// StoreDecoderRegistry defines each of the modules store decoders. Used for ImportExport
+// simulation.
+type StoreDecoderRegistry map[string]func(kvA, kvB kv.Pair) string

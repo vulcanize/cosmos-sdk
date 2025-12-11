@@ -2,7 +2,7 @@
 
 ## Changelog
 
-- Sep 22, 2021: Initial Draft
+* Sep 22, 2021: Initial Draft
 
 ## Status
 
@@ -135,15 +135,15 @@ message QueryParamsResponse {
 As a result of implementing the module parameter methodology, we gain the ability
 for module parameter changes to be stateful and extensible to fit nearly every
 application's use case. We will be able to emit events (and trigger hooks registered
-to that events using the work proposed in [even hooks](https://github.com/cosmos/cosmos-sdk/discussions/9656)),
+to that events using the work proposed in [event hooks](https://github.com/cosmos/cosmos-sdk/discussions/9656)),
 call other Msg service methods or perform migration.
 In addition, there will be significant gains in performance when it comes to reading
 and writing parameters from and to state, especially if a specific set of parameters
 are read on a consistent basis.
 
 However, this methodology will require developers to implement more types and
-Msg service metohds which can become burdensome if many parameters exist. In addition,
-developers are required to implement persistance logics of module parameters.
+Msg service methods which can become burdensome if many parameters exist. In addition,
+developers are required to implement persistence logics of module parameters.
 However, this should be trivial.
 
 ### Backwards Compatibility
@@ -156,20 +156,20 @@ module may be removed entirely in a future release.
 
 ### Positive
 
-- Module parameters are serialized more efficiently
-- Modules are able to react on parameters changes and perform additional actions.
-- Special events can be emitted, allowing hooks to be triggered.
+* Module parameters are serialized more efficiently
+* Modules are able to react on parameters changes and perform additional actions.
+* Special events can be emitted, allowing hooks to be triggered.
 
 ### Negative
 
-- Module parameters becomes slightly more burdensome for module developers:
-    - Modules are now responsible for persisting and retrieving parameter state
-    - Modules are now required to have unique message handlers to handle parameter
+* Module parameters become slightly more burdensome for module developers:
+    * Modules are now responsible for persisting and retrieving parameter state
+    * Modules are now required to have unique message handlers to handle parameter
       changes per unique parameter data structure.
 
 ### Neutral
 
-- Requires [#9810](https://github.com/cosmos/cosmos-sdk/pull/9810) to be reviewed
+* Requires [#9810](https://github.com/cosmos/cosmos-sdk/pull/9810) to be reviewed
   and merged.
 
 <!-- ## Further Discussions
@@ -179,6 +179,6 @@ Later, this section can optionally list ideas or improvements the author or revi
 
 ## References
 
-- https://github.com/cosmos/cosmos-sdk/pull/9810
-- https://github.com/cosmos/cosmos-sdk/issues/9438
-- https://github.com/cosmos/cosmos-sdk/discussions/9913
+* https://github.com/cosmos/cosmos-sdk/pull/9810
+* https://github.com/cosmos/cosmos-sdk/issues/9438
+* https://github.com/cosmos/cosmos-sdk/discussions/9913

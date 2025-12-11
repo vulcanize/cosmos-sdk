@@ -1,13 +1,12 @@
 package types
 
 import (
-	"fmt"
-	"strings"
+	sdkmath "cosmossdk.io/math"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
-// create a new ValidatorHistoricalRewards
+// NewValidatorHistoricalRewards creates a new ValidatorHistoricalRewards
 func NewValidatorHistoricalRewards(cumulativeRewardRatio sdk.DecCoins, referenceCount uint32) ValidatorHistoricalRewards {
 	return ValidatorHistoricalRewards{
 		CumulativeRewardRatio: cumulativeRewardRatio,
@@ -15,7 +14,7 @@ func NewValidatorHistoricalRewards(cumulativeRewardRatio sdk.DecCoins, reference
 	}
 }
 
-// create a new ValidatorCurrentRewards
+// NewValidatorCurrentRewards creates a new ValidatorCurrentRewards
 func NewValidatorCurrentRewards(rewards sdk.DecCoins, period uint64) ValidatorCurrentRewards {
 	return ValidatorCurrentRewards{
 		Rewards: rewards,
@@ -23,26 +22,15 @@ func NewValidatorCurrentRewards(rewards sdk.DecCoins, period uint64) ValidatorCu
 	}
 }
 
-// return the initial accumulated commission (zero)
+// InitialValidatorAccumulatedCommission returns the initial accumulated commission (zero)
 func InitialValidatorAccumulatedCommission() ValidatorAccumulatedCommission {
 	return ValidatorAccumulatedCommission{}
 }
 
-// create a new ValidatorSlashEvent
-func NewValidatorSlashEvent(validatorPeriod uint64, fraction sdk.Dec) ValidatorSlashEvent {
+// NewValidatorSlashEvent creates a new ValidatorSlashEvent
+func NewValidatorSlashEvent(validatorPeriod uint64, fraction sdkmath.LegacyDec) ValidatorSlashEvent {
 	return ValidatorSlashEvent{
 		ValidatorPeriod: validatorPeriod,
 		Fraction:        fraction,
 	}
-}
-
-func (vs ValidatorSlashEvents) String() string {
-	out := "Validator Slash Events:\n"
-	for i, sl := range vs.ValidatorSlashEvents {
-		out += fmt.Sprintf(`  Slash %d:
-    Period:   %d
-    Fraction: %s
-`, i, sl.ValidatorPeriod, sl.Fraction)
-	}
-	return strings.TrimSpace(out)
 }

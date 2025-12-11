@@ -16,8 +16,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keys/multisig"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	"github.com/cosmos/cosmos-sdk/testutil"
+	moduletestutil "github.com/cosmos/cosmos-sdk/types/module/testutil"
 )
 
 type setter interface {
@@ -36,14 +36,13 @@ type MigrateTestSuite struct {
 
 func (s *MigrateTestSuite) SetupSuite() {
 	s.dir = s.T().TempDir()
-	s.cdc = simapp.MakeTestEncodingConfig().Codec
+	s.cdc = moduletestutil.MakeTestEncodingConfig().Codec
 	s.appName = "cosmos"
 	s.priv = cryptotypes.PrivKey(secp256k1.GenPrivKey())
 	s.pub = s.priv.PubKey()
 }
 
 func (s *MigrateTestSuite) Test_runListAndShowCmd() {
-
 	// adding LegacyInfo item into keyring
 	multi := multisig.NewLegacyAminoPubKey(
 		1, []cryptotypes.PubKey{
@@ -55,14 +54,14 @@ func (s *MigrateTestSuite) Test_runListAndShowCmd() {
 	serializedLegacyMultiInfo := keyring.MarshalInfo(legacyMultiInfo)
 
 	item := design99keyring.Item{
-		Key:         s.appName,
+		Key:         s.appName + ".info",
 		Data:        serializedLegacyMultiInfo,
-		Description: "SDK kerying version",
+		Description: "SDK keyring version",
 	}
 
-	//run test simd keys list - to see that the migrated key is there
+	// run test simd keys list - to see that the migrated key is there
 	cmd := ListKeysCmd()
-	cmd.Flags().AddFlagSet(Commands("home").PersistentFlags())
+	cmd.Flags().AddFlagSet(Commands().PersistentFlags())
 
 	mockIn := testutil.ApplyMockIODiscardOutErr(cmd)
 	kb, err := keyring.New(s.appName, keyring.BackendTest, s.dir, mockIn, s.cdc)
@@ -76,7 +75,7 @@ func (s *MigrateTestSuite) Test_runListAndShowCmd() {
 	ctx := context.WithValue(context.Background(), client.ClientContextKey, &clientCtx)
 
 	cmd.SetArgs([]string{
-		fmt.Sprintf("--%s=%s", flags.FlagHome, s.dir),
+		fmt.Sprintf("--%s=%s", flags.FlagKeyringDir, s.dir),
 		fmt.Sprintf("--%s=false", flagListNames),
 	})
 
@@ -99,7 +98,7 @@ func (s *MigrateTestSuite) Test_runMigrateCmdRecord() {
 	item := design99keyring.Item{
 		Key:         s.appName,
 		Data:        serializedRecord,
-		Description: "SDK kerying version",
+		Description: "SDK keyring version",
 	}
 
 	cmd := MigrateCommand()
@@ -131,7 +130,7 @@ func (s *MigrateTestSuite) Test_runMigrateCmdLegacyMultiInfo() {
 	item := design99keyring.Item{
 		Key:         s.appName,
 		Data:        serializedLegacyMultiInfo,
-		Description: "SDK kerying version",
+		Description: "SDK keyring version",
 	}
 
 	cmd := MigrateCommand()

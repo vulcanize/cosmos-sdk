@@ -8,9 +8,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	sdkmath "cosmossdk.io/math"
+
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 	"github.com/cosmos/cosmos-sdk/x/slashing/simulation"
@@ -18,7 +19,7 @@ import (
 )
 
 // TestRandomizedGenState tests the normal scenario of applying RandomizedGenState.
-// Abonormal scenarios are not tested here.
+// Abnormal scenarios are not tested here.
 func TestRandomizedGenState(t *testing.T) {
 	interfaceRegistry := codectypes.NewInterfaceRegistry()
 	cdc := codec.NewProtoCodec(interfaceRegistry)
@@ -32,7 +33,7 @@ func TestRandomizedGenState(t *testing.T) {
 		Rand:         r,
 		NumBonded:    3,
 		Accounts:     simtypes.RandomAccounts(r, 3),
-		InitialStake: 1000,
+		InitialStake: sdkmath.NewInt(1000),
 		GenState:     make(map[string]json.RawMessage),
 	}
 
@@ -41,9 +42,9 @@ func TestRandomizedGenState(t *testing.T) {
 	var slashingGenesis types.GenesisState
 	simState.Cdc.MustUnmarshalJSON(simState.GenState[types.ModuleName], &slashingGenesis)
 
-	dec1, _ := sdk.NewDecFromStr("0.600000000000000000")
-	dec2, _ := sdk.NewDecFromStr("0.022222222222222222")
-	dec3, _ := sdk.NewDecFromStr("0.008928571428571429")
+	dec1, _ := sdkmath.LegacyNewDecFromStr("0.600000000000000000")
+	dec2, _ := sdkmath.LegacyNewDecFromStr("0.022222222222222222")
+	dec3, _ := sdkmath.LegacyNewDecFromStr("0.008928571428571429")
 
 	require.Equal(t, dec1, slashingGenesis.Params.MinSignedPerWindow)
 	require.Equal(t, dec2, slashingGenesis.Params.SlashFractionDoubleSign)
@@ -52,7 +53,6 @@ func TestRandomizedGenState(t *testing.T) {
 	require.Equal(t, time.Duration(34800000000000), slashingGenesis.Params.DowntimeJailDuration)
 	require.Len(t, slashingGenesis.MissedBlocks, 0)
 	require.Len(t, slashingGenesis.SigningInfos, 0)
-
 }
 
 // TestRandomizedGenState tests abnormal scenarios of applying RandomizedGenState.

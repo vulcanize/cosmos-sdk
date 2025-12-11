@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"compress/gzip"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"reflect"
 
-	"github.com/gogo/protobuf/proto"
+	"github.com/cosmos/gogoproto/proto"
 	"google.golang.org/grpc"
 	proto2 "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
@@ -41,7 +41,7 @@ func RegisterMsgServiceDesc(registry codectypes.InterfaceRegistry, sd *grpc.Serv
 	}
 
 	prefSd := fd.Services().ByName(protoreflect.FullName(sd.ServiceName).Name())
-	for i := 0; i < prefSd.Methods().Len(); i++ {
+	for i := range prefSd.Methods().Len() {
 		md := prefSd.Methods().Get(i)
 		requestDesc := md.Input()
 		responseDesc := md.Output()
@@ -64,7 +64,7 @@ func unzip(b []byte) []byte {
 		panic(err)
 	}
 
-	unzipped, err := ioutil.ReadAll(r)
+	unzipped, err := io.ReadAll(r)
 	if err != nil {
 		panic(err)
 	}

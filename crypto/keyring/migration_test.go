@@ -7,16 +7,17 @@ import (
 	"github.com/99designs/keyring"
 	"github.com/stretchr/testify/suite"
 
+	errorsmod "cosmossdk.io/errors"
+
 	"github.com/cosmos/cosmos-sdk/codec/legacy"
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
-
 	"github.com/cosmos/cosmos-sdk/crypto/keys/multisig"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
 
-const n1 = "cosmos"
+const n1 = "cosmos.info"
 
 type MigrationTestSuite struct {
 	suite.Suite
@@ -52,13 +53,12 @@ func (s *MigrationTestSuite) TestMigrateLegacyLocalKey() {
 	item := keyring.Item{
 		Key:         n1,
 		Data:        serializedLegacyLocalInfo,
-		Description: "SDK kerying version",
+		Description: "SDK keyring version",
 	}
 
 	s.Require().NoError(s.ks.SetItem(item))
 
-	_, migrated, err := s.ks.migrate(n1)
-	s.Require().True(migrated)
+	_, err := s.ks.migrate(n1)
 	s.Require().NoError(err)
 }
 
@@ -71,13 +71,12 @@ func (s *MigrationTestSuite) TestMigrateLegacyLedgerKey() {
 	item := keyring.Item{
 		Key:         n1,
 		Data:        serializedLegacyLedgerInfo,
-		Description: "SDK kerying version",
+		Description: "SDK keyring version",
 	}
 
 	s.Require().NoError(s.ks.SetItem(item))
 
-	_, migrated, err := s.ks.migrate(n1)
-	s.Require().True(migrated)
+	_, err := s.ks.migrate(n1)
 	s.Require().NoError(err)
 }
 
@@ -88,13 +87,12 @@ func (s *MigrationTestSuite) TestMigrateLegacyOfflineKey() {
 	item := keyring.Item{
 		Key:         n1,
 		Data:        serializedLegacyOfflineInfo,
-		Description: "SDK kerying version",
+		Description: "SDK keyring version",
 	}
 
 	s.Require().NoError(s.ks.SetItem(item))
 
-	_, migrated, err := s.ks.migrate(n1)
-	s.Require().True(migrated)
+	_, err := s.ks.migrate(n1)
 	s.Require().NoError(err)
 }
 
@@ -112,13 +110,12 @@ func (s *MigrationTestSuite) TestMigrateLegacyMultiKey() {
 	item := keyring.Item{
 		Key:         n1,
 		Data:        serializedLegacyMultiInfo,
-		Description: "SDK kerying version",
+		Description: "SDK keyring version",
 	}
 
 	s.Require().NoError(s.ks.SetItem(item))
 
-	_, migrated, err := s.ks.migrate(n1)
-	s.Require().True(migrated)
+	_, err = s.ks.migrate(n1)
 	s.Require().NoError(err)
 }
 
@@ -132,12 +129,13 @@ func (s *MigrationTestSuite) TestMigrateLocalRecord() {
 	item := keyring.Item{
 		Key:         n1,
 		Data:        serializedRecord,
-		Description: "SDK kerying version",
+		Description: "SDK keyring version",
 	}
 
 	s.Require().NoError(s.ks.SetItem(item))
 
-	k2, migrated, err := s.ks.migrate(n1)
+	k2, err := s.ks.migrate(n1)
+	s.Require().NoError(err)
 	s.Require().Equal(k2.Name, k1.Name)
 
 	pub, err := k2.GetPubKey()
@@ -148,7 +146,6 @@ func (s *MigrationTestSuite) TestMigrateLocalRecord() {
 	s.Require().NoError(err)
 	s.Require().Equal(priv, s.priv)
 
-	s.Require().False(migrated)
 	s.Require().NoError(err)
 }
 
@@ -157,13 +154,12 @@ func (s *MigrationTestSuite) TestMigrateOneRandomItemError() {
 	errItem := keyring.Item{
 		Key:         n1,
 		Data:        randomBytes,
-		Description: "SDK kerying version",
+		Description: "SDK keyring version",
 	}
 
 	s.Require().NoError(s.ks.SetItem(errItem))
 
-	_, migrated, err := s.ks.migrate(n1)
-	s.Require().False(migrated)
+	_, err := s.ks.migrate(n1)
 	s.Require().Error(err)
 }
 
@@ -181,7 +177,7 @@ func (s *MigrationTestSuite) TestMigrateAllLegacyMultiOffline() {
 	item := keyring.Item{
 		Key:         n1,
 		Data:        serializedLegacyMultiInfo,
-		Description: "SDK kerying version",
+		Description: "SDK keyring version",
 	}
 
 	s.Require().NoError(s.ks.SetItem(item))
@@ -192,19 +188,17 @@ func (s *MigrationTestSuite) TestMigrateAllLegacyMultiOffline() {
 	item = keyring.Item{
 		Key:         n1,
 		Data:        serializedLegacyOfflineInfo,
-		Description: "SDK kerying version",
+		Description: "SDK keyring version",
 	}
 
 	s.Require().NoError(s.ks.SetItem(item))
 
-	migrated, err := s.kb.MigrateAll()
-	s.Require().True(migrated)
+	_, err = s.kb.MigrateAll()
 	s.Require().NoError(err)
 }
 
 func (s *MigrationTestSuite) TestMigrateAllNoItem() {
-	migrated, err := s.kb.MigrateAll()
-	s.Require().False(migrated)
+	_, err := s.kb.MigrateAll()
 	s.Require().NoError(err)
 }
 
@@ -215,30 +209,29 @@ func (s *MigrationTestSuite) TestMigrateErrUnknownItemKey() {
 	item := keyring.Item{
 		Key:         n1,
 		Data:        serializedLegacyOfflineInfo,
-		Description: "SDK kerying version",
+		Description: "SDK keyring version",
 	}
 
 	s.Require().NoError(s.ks.SetItem(item))
 
 	incorrectItemKey := n1 + "1"
-	_, migrated, err := s.ks.migrate(incorrectItemKey)
-	s.Require().False(migrated)
-	s.Require().EqualError(err, sdkerrors.Wrap(sdkerrors.ErrKeyNotFound, incorrectItemKey).Error())
+	_, err := s.ks.migrate(incorrectItemKey)
+	s.Require().EqualError(err, errorsmod.Wrap(sdkerrors.ErrKeyNotFound, infoKey(incorrectItemKey)).Error())
 }
 
 func (s *MigrationTestSuite) TestMigrateErrEmptyItemData() {
 	item := keyring.Item{
 		Key:         n1,
 		Data:        []byte{},
-		Description: "SDK kerying version",
+		Description: "SDK keyring version",
 	}
 
 	s.Require().NoError(s.ks.SetItem(item))
 
-	_, migrated, err := s.ks.migrate(n1)
-	s.Require().False(migrated)
-	s.Require().EqualError(err, sdkerrors.Wrap(sdkerrors.ErrKeyNotFound, n1).Error())
+	_, err := s.ks.migrate(n1)
+	s.Require().EqualError(err, errorsmod.Wrap(sdkerrors.ErrKeyNotFound, n1).Error())
 }
+
 func TestMigrationTestSuite(t *testing.T) {
 	suite.Run(t, new(MigrationTestSuite))
 }

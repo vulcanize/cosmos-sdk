@@ -3,17 +3,17 @@
 // produces apps versioning information based on flags
 // passed at compile time.
 //
-// Configure the version command
+// # Configure the version command
 //
 // The version command can be just added to your cobra root command.
 // At build time, the variables Name, Version, Commit, and BuildTags
 // can be passed as build flags as shown in the following example:
 //
-//  go build -X github.com/cosmos/cosmos-sdk/version.Name=gaia \
-//   -X github.com/cosmos/cosmos-sdk/version.AppName=gaiad \
-//   -X github.com/cosmos/cosmos-sdk/version.Version=1.0 \
-//   -X github.com/cosmos/cosmos-sdk/version.Commit=f0f7b7dab7e36c20b757cebce0e8f4fc5b95de60 \
-//   -X "github.com/cosmos/cosmos-sdk/version.BuildTags=linux darwin amd64"
+//	go build -X github.com/cosmos/cosmos-sdk/version.Name=gaia \
+//	 -X github.com/cosmos/cosmos-sdk/version.AppName=gaiad \
+//	 -X github.com/cosmos/cosmos-sdk/version.Version=1.0 \
+//	 -X github.com/cosmos/cosmos-sdk/version.Commit=f0f7b7dab7e36c20b757cebce0e8f4fc5b95de60 \
+//	 -X "github.com/cosmos/cosmos-sdk/version.BuildTags=linux darwin amd64"
 package version
 
 import (
@@ -23,16 +23,17 @@ import (
 	"runtime/debug"
 )
 
+// ContextKey is used to store the ExtraInfo in the context.
+type ContextKey struct{}
+
 var (
-	// application's name
+	// Name is the application's name
 	Name = ""
-	// application binary name
+	// AppName is the application binary name
 	AppName = "<appd>"
-	// application's version string
-	Version = ""
-	// commit
-	Commit = ""
-	// build tags
+	// Version is the application's version string
+	Version   = ""
+	Commit    = ""
 	BuildTags = ""
 )
 
@@ -44,12 +45,19 @@ func getSDKVersion() string {
 	var sdkVersion string
 	for _, dep := range deps.Deps {
 		if dep.Path == "github.com/cosmos/cosmos-sdk" {
-			sdkVersion = dep.Version
+			if dep.Replace != nil && dep.Replace.Version != "(devel)" {
+				sdkVersion = dep.Replace.Version
+			} else {
+				sdkVersion = dep.Version
+			}
 		}
 	}
 
 	return sdkVersion
 }
+
+// ExtraInfo contains a set of extra information provided by apps
+type ExtraInfo map[string]string
 
 // Info defines the application version information.
 type Info struct {
@@ -61,6 +69,7 @@ type Info struct {
 	GoVersion        string     `json:"go" yaml:"go"`
 	BuildDeps        []buildDep `json:"build_deps" yaml:"build_deps"`
 	CosmosSdkVersion string     `json:"cosmos_sdk_version" yaml:"cosmos_sdk_version"`
+	ExtraInfo        ExtraInfo  `json:"extra_info,omitempty" yaml:"extra_info,omitempty"`
 }
 
 func NewInfo() Info {
@@ -96,7 +105,7 @@ func depsFromBuildInfo() (deps []buildDep) {
 		deps = append(deps, buildDep{dep})
 	}
 
-	return
+	return deps
 }
 
 type buildDep struct {
@@ -111,5 +120,5 @@ func (d buildDep) String() string {
 	return fmt.Sprintf("%s@%s", d.Path, d.Version)
 }
 
-func (d buildDep) MarshalJSON() ([]byte, error)      { return json.Marshal(d.String()) }
-func (d buildDep) MarshalYAML() (interface{}, error) { return d.String(), nil }
+func (d buildDep) MarshalJSON() ([]byte, error) { return json.Marshal(d.String()) }
+func (d buildDep) MarshalYAML() (any, error)    { return d.String(), nil }

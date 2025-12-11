@@ -1,6 +1,5 @@
 ---
-parent:
-  order: false
+sidebar_position: 1
 ---
 
 # Specifications
@@ -13,14 +12,14 @@ block.
 
 ## Cosmos SDK specifications
 
-- [Store](./store) - The core Merkle store that holds the state.
-- [Bech32](./addresses/bech32.md) - Address format for Cosmos SDK applications.
+* [Store](./store) - The core Merkle store that holds the state.
+* [Bech32](./addresses/bech32.md) - Address format for Cosmos SDK applications.
 
 ## Modules specifications
 
-Go the [module directory](../../x/README.md)
+Go to the [module directory](https://docs.cosmos.network/main/modules)
 
-## Tendermint
+## CometBFT
 
 For details on the underlying blockchain and p2p protocols, see
-the [Tendermint specification](https://github.com/tendermint/spec/tree/master/spec).
+the [CometBFT specification](https://github.com/cometbft/cometbft/tree/main/spec).

@@ -2,7 +2,7 @@
 
 ## Changelog
 
-- 2020 March 27: Initial Draft
+* 2020 March 27: Initial Draft
 
 ## Status
 
@@ -12,10 +12,10 @@ Accepted
 
 This ADR is a continuation of the motivation, design, and context established in
 [ADR 019](./adr-019-protobuf-state-encoding.md) and
-[ARD 020](./adr-019-protobuf-transaction-encoding.md), namely, we aim to design the
+[ADR 020](./adr-020-protobuf-transaction-encoding.md), namely, we aim to design the
 Protocol Buffer migration path for the client-side of the Cosmos SDK.
 
-This ADR continues from [ARD 020](./adr-020-protobuf-transaction-encoding.md)
+This ADR continues from [ADR 020](./adr-020-protobuf-transaction-encoding.md)
 to specify the encoding of queries.
 
 ## Decision
@@ -31,7 +31,7 @@ custom ABCI queries and even reuse a substantial amount of the GRPC infrastructu
 
 Each module with custom queries should define a service canonically named `Query`:
 
-```proto
+```protobuf
 // x/bank/types/types.proto
 
 service Query {
@@ -50,11 +50,11 @@ provide query methods that expose these interfaces via `google.protobuf.Any`.
 There is a concern on the transaction level that the overhead of `Any` is too
 high to justify its usage. However for queries this is not a concern, and
 providing generic module-level queries that use `Any` does not preclude apps
-from also providing app-level queries that return use the app-level `oneof`s.
+from also providing app-level queries that return using the app-level `oneof`s.
 
 A hypothetical example for the `gov` module would look something like:
 
-```proto
+```protobuf
 // x/gov/types/types.proto
 
 import "google/protobuf/any.proto";
@@ -71,7 +71,7 @@ message AnyProposal {
 
 ### Custom Query Implementation
 
-In order to implement the query service, we can reuse the existing [gogo protobuf](https://github.com/gogo/protobuf)
+In order to implement the query service, we can reuse the existing [gogo protobuf](https://github.com/cosmos/gogoproto)
 grpc plugin, which for a service named `Query` generates an interface named
 `QueryServer` as below:
 
@@ -159,7 +159,7 @@ translates REST calls into GRPC calls using special annotations on service
 methods. Modules that want to expose REST queries should add `google.api.http`
 annotations to their `rpc` methods as in this example below.
 
-```proto
+```protobuf
 // x/bank/types/types.proto
 
 service Query {
@@ -176,7 +176,7 @@ service Query {
 }
 ```
 
-grpc-gateway will work direcly against the GRPC proxy described above which will
+grpc-gateway will work directly against the GRPC proxy described above which will
 translate requests to ABCI queries under the hood. grpc-gateway can also
 generate Swagger definitions automatically.
 
@@ -205,7 +205,7 @@ type QueryClient interface {
 ```
 
 Via a small patch to gogo protobuf ([gogo/protobuf#675](https://github.com/gogo/protobuf/pull/675))
-we have tweaked the grpc codegen to use an interface rather than concrete type
+we have tweaked the grpc codegen to use an interface rather than a concrete type
 for the generated client struct. This allows us to also reuse the GRPC infrastructure
 for ABCI client queries.
 

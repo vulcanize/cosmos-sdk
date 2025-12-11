@@ -1,7 +1,9 @@
 package authz
 
 import (
-	"github.com/gogo/protobuf/proto"
+	context "context"
+
+	"github.com/cosmos/gogoproto/proto"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -17,7 +19,7 @@ type Authorization interface {
 
 	// Accept determines whether this grant permits the provided sdk.Msg to be performed,
 	// and if so provides an upgraded authorization instance.
-	Accept(ctx sdk.Context, msg sdk.Msg) (AcceptResponse, error)
+	Accept(ctx context.Context, msg sdk.Msg) (AcceptResponse, error)
 
 	// ValidateBasic does a simple validation check that
 	// doesn't require access to any other information.
@@ -27,7 +29,7 @@ type Authorization interface {
 // AcceptResponse instruments the controller of an authz message if the request is accepted
 // and if it should be updated or deleted.
 type AcceptResponse struct {
-	// If Accept=true, the controller can accept and authorization and handle the update.
+	// If Accept=true, the controller can accept an authorization and handle the update.
 	Accept bool
 	// If Delete=true, the controller must delete the authorization object and release
 	// storage resources.

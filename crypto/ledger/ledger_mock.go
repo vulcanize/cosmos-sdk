@@ -1,20 +1,19 @@
-// +build ledger,test_ledger_mock
+//go:build ledger && test_ledger_mock
 
 package ledger
 
 import (
+	"errors"
 	"fmt"
 
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/pkg/errors"
-
+	"github.com/cometbft/cometbft/crypto"
 	"github.com/cosmos/go-bip39"
-	secp256k1 "github.com/tendermint/btcd/btcec"
-	"github.com/tendermint/tendermint/crypto"
+	secp "github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	csecp256k1 "github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	"github.com/cosmos/cosmos-sdk/testutil"
+	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -22,13 +21,14 @@ import (
 // set the discoverLedger function which is responsible for loading the Ledger
 // device at runtime or returning an error.
 func init() {
-	discoverLedger = func() (SECP256K1, error) {
+	options.discoverLedger = func() (SECP256K1, error) {
 		return LedgerSECP256K1Mock{}, nil
 	}
+
+	initOptionsDefault()
 }
 
-type LedgerSECP256K1Mock struct {
-}
+type LedgerSECP256K1Mock struct{} //nolint: revive // we can ignore this, as this type is being used
 
 func (mock LedgerSECP256K1Mock) Close() error {
 	return nil
@@ -38,14 +38,14 @@ func (mock LedgerSECP256K1Mock) Close() error {
 // as per the original API, it returns an uncompressed key
 func (mock LedgerSECP256K1Mock) GetPublicKeySECP256K1(derivationPath []uint32) ([]byte, error) {
 	if derivationPath[0] != 44 {
-		return nil, errors.New("Invalid derivation path")
+		return nil, errors.New("invalid derivation path")
 	}
 
 	if derivationPath[1] != sdk.GetConfig().GetCoinType() {
-		return nil, errors.New("Invalid derivation path")
+		return nil, errors.New("invalid derivation path")
 	}
 
-	seed, err := bip39.NewSeedWithErrorChecking(testutil.TestMnemonic, "")
+	seed, err := bip39.NewSeedWithErrorChecking(testdata.TestMnemonic, "")
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +57,7 @@ func (mock LedgerSECP256K1Mock) GetPublicKeySECP256K1(derivationPath []uint32) (
 		return nil, err
 	}
 
-	_, pubkeyObject := secp256k1.PrivKeyFromBytes(secp256k1.S256(), derivedPriv[:])
+	pubkeyObject := secp.PrivKeyFromBytes(derivedPriv).PubKey()
 
 	return pubkeyObject.SerializeUncompressed(), nil
 }
@@ -71,23 +71,23 @@ func (mock LedgerSECP256K1Mock) GetAddressPubKeySECP256K1(derivationPath []uint3
 	}
 
 	// re-serialize in the 33-byte compressed format
-	cmp, err := btcec.ParsePubKey(pk[:], btcec.S256())
+	cmp, err := secp.ParsePubKey(pk)
 	if err != nil {
-		return nil, "", fmt.Errorf("error parsing public key: %v", err)
+		return nil, "", fmt.Errorf("error parsing public key: %w", err)
 	}
 
 	compressedPublicKey := make([]byte, csecp256k1.PubKeySize)
 	copy(compressedPublicKey, cmp.SerializeCompressed())
 
-	// Generate the bech32 addr using existing tmcrypto/etc.
+	// Generate the bech32 addr using existing cmtcrypto/etc.
 	pub := &csecp256k1.PubKey{Key: compressedPublicKey}
 	addr := sdk.AccAddress(pub.Address()).String()
 	return pk, addr, err
 }
 
-func (mock LedgerSECP256K1Mock) SignSECP256K1(derivationPath []uint32, message []byte) ([]byte, error) {
+func (mock LedgerSECP256K1Mock) SignSECP256K1(derivationPath []uint32, message []byte, p2 byte) ([]byte, error) {
 	path := hd.NewParams(derivationPath[0], derivationPath[1], derivationPath[2], derivationPath[3] != 0, derivationPath[4])
-	seed, err := bip39.NewSeedWithErrorChecking(testutil.TestMnemonic, "")
+	seed, err := bip39.NewSeedWithErrorChecking(testdata.TestMnemonic, "")
 	if err != nil {
 		return nil, err
 	}
@@ -98,16 +98,10 @@ func (mock LedgerSECP256K1Mock) SignSECP256K1(derivationPath []uint32, message [
 		return nil, err
 	}
 
-	priv, _ := secp256k1.PrivKeyFromBytes(secp256k1.S256(), derivedPriv[:])
+	priv := secp.PrivKeyFromBytes(derivedPriv)
+	sig := ecdsa.Sign(priv, crypto.Sha256(message))
 
-	sig, err := priv.Sign(crypto.Sha256(message))
-	if err != nil {
-		return nil, err
-	}
-
-	// Need to return DER as the ledger does
-	sig2 := btcec.Signature{R: sig.R, S: sig.S}
-	return sig2.Serialize(), nil
+	return sig.Serialize(), nil
 }
 
 // ShowAddressSECP256K1 shows the address for the corresponding bip32 derivation path

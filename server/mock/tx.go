@@ -1,75 +1,124 @@
-//nolint
 package mock
 
 import (
 	"bytes"
 	"fmt"
-	"math"
 
+	protov2 "google.golang.org/protobuf/proto"
+
+	bankv1beta1 "cosmossdk.io/api/cosmos/bank/v1beta1"
+	errorsmod "cosmossdk.io/errors"
+
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/x/auth/middleware"
+	txsigning "github.com/cosmos/cosmos-sdk/types/tx/signing"
+	"github.com/cosmos/cosmos-sdk/x/auth/signing"
 )
 
-// kvstoreTx defines a tx for mock purposes. The `key` and `value` fields will
-// set those bytes in the kvstore, and the `bytes` field represents its
-// GetSignBytes value.
-type kvstoreTx struct {
-	key   []byte
-	value []byte
-	bytes []byte
+type KVStoreTx struct {
+	key     []byte
+	value   []byte
+	bytes   []byte
+	address sdk.AccAddress
 }
 
-// dummy implementation of proto.Message
-func (msg *kvstoreTx) Reset()         {}
-func (msg *kvstoreTx) String() string { return "TODO" }
-func (msg *kvstoreTx) ProtoMessage()  {}
+// testPubKey is a dummy implementation of PubKey used for testing.
+type testPubKey struct {
+	address sdk.AccAddress
+}
 
-var _ sdk.Tx = &kvstoreTx{}
-var _ sdk.Msg = &kvstoreTx{}
-var _ middleware.GasTx = &kvstoreTx{}
+func (t testPubKey) Reset() { panic("not implemented") }
 
-func NewTx(key, value string) kvstoreTx {
-	bytes := fmt.Sprintf("%s=%s", key, value)
-	return kvstoreTx{
-		key:   []byte(key),
-		value: []byte(value),
-		bytes: []byte(bytes),
+func (t testPubKey) String() string { panic("not implemented") }
+
+func (t testPubKey) ProtoMessage() { panic("not implemented") }
+
+func (t testPubKey) Address() cryptotypes.Address { return t.address.Bytes() }
+
+func (t testPubKey) Bytes() []byte { panic("not implemented") }
+
+func (t testPubKey) VerifySignature(msg, sig []byte) bool { panic("not implemented") }
+
+func (t testPubKey) Equals(key cryptotypes.PubKey) bool { panic("not implemented") }
+
+func (t testPubKey) Type() string { panic("not implemented") }
+
+func (msg *KVStoreTx) GetSignaturesV2() (res []txsigning.SignatureV2, err error) {
+	res = append(res, txsigning.SignatureV2{
+		PubKey:   testPubKey{address: msg.address},
+		Data:     nil,
+		Sequence: 1,
+	})
+
+	return res, nil
+}
+
+func (msg *KVStoreTx) VerifySignature(msgByte, sig []byte) bool {
+	panic("implement me")
+}
+
+func (msg *KVStoreTx) Address() cryptotypes.Address {
+	panic("implement me")
+}
+
+func (msg *KVStoreTx) Bytes() []byte {
+	panic("implement me")
+}
+
+func (msg *KVStoreTx) Equals(key cryptotypes.PubKey) bool {
+	panic("implement me")
+}
+
+func (msg *KVStoreTx) Reset() {}
+func (msg *KVStoreTx) String() string {
+	return fmt.Sprintf("KVStoreTx{key:%q value:%q address:%s}", msg.key, msg.value, msg.address.String())
+}
+func (msg *KVStoreTx) ProtoMessage() {}
+
+var (
+	_ sdk.Tx                  = &KVStoreTx{}
+	_ sdk.Msg                 = &KVStoreTx{}
+	_ signing.SigVerifiableTx = &KVStoreTx{}
+	_ cryptotypes.PubKey      = &KVStoreTx{}
+	_ cryptotypes.PubKey      = &testPubKey{}
+)
+
+func NewTx(key, value string, accAddress sdk.AccAddress) *KVStoreTx {
+	bytes := fmt.Sprintf("%s=%s=%s", key, value, accAddress)
+	return &KVStoreTx{
+		key:     []byte(key),
+		value:   []byte(value),
+		bytes:   []byte(bytes),
+		address: accAddress,
 	}
 }
 
-func (tx kvstoreTx) Route() string {
-	return "kvstore"
-}
-
-func (tx kvstoreTx) Type() string {
+func (msg *KVStoreTx) Type() string {
 	return "kvstore_tx"
 }
 
-func (tx *kvstoreTx) GetMsgs() []sdk.Msg {
-	return []sdk.Msg{tx}
+func (msg *KVStoreTx) GetMsgs() []sdk.Msg {
+	return []sdk.Msg{msg}
 }
 
-func (tx kvstoreTx) GetMemo() string {
-	return ""
+func (msg *KVStoreTx) GetMsgsV2() ([]protov2.Message, error) {
+	return []protov2.Message{&bankv1beta1.MsgSend{FromAddress: msg.address.String()}}, nil // this is a hack for tests
 }
 
-func (tx kvstoreTx) GetSignBytes() []byte {
-	return tx.bytes
+func (msg *KVStoreTx) GetSignBytes() []byte {
+	return msg.bytes
 }
 
-// Should the app be calling this? Or only handlers?
-func (tx kvstoreTx) ValidateBasic() error {
+func (msg *KVStoreTx) ValidateBasic() error {
 	return nil
 }
 
-func (tx kvstoreTx) GetSigners() []sdk.AccAddress {
-	return nil
+func (msg *KVStoreTx) GetSigners() ([][]byte, error) {
+	return nil, nil
 }
 
-func (tx kvstoreTx) GetGas() uint64 {
-	return math.MaxUint64
-}
+func (msg *KVStoreTx) GetPubKeys() ([]cryptotypes.PubKey, error) { panic("GetPubKeys not implemented") }
 
 // takes raw transaction bytes and decodes them into an sdk.Tx. An sdk.Tx has
 // all the signatures and can be used to authenticate.
@@ -77,14 +126,18 @@ func decodeTx(txBytes []byte) (sdk.Tx, error) {
 	var tx sdk.Tx
 
 	split := bytes.Split(txBytes, []byte("="))
-	if len(split) == 1 {
+	switch len(split) {
+	case 1:
 		k := split[0]
-		tx = &kvstoreTx{k, k, txBytes}
-	} else if len(split) == 2 {
+		tx = &KVStoreTx{k, k, txBytes, nil}
+	case 2:
 		k, v := split[0], split[1]
-		tx = &kvstoreTx{k, v, txBytes}
-	} else {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "too many '='")
+		tx = &KVStoreTx{k, v, txBytes, nil}
+	case 3:
+		k, v, addr := split[0], split[1], split[2]
+		tx = &KVStoreTx{k, v, txBytes, addr}
+	default:
+		return nil, errorsmod.Wrap(sdkerrors.ErrTxDecode, "too many '='")
 	}
 
 	return tx, nil

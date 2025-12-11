@@ -7,11 +7,10 @@ import (
 	"testing"
 	"time"
 
-	tmed25519 "github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/privval"
-
+	"github.com/cometbft/cometbft/config"
+	tmed25519 "github.com/cometbft/cometbft/crypto/ed25519"
+	"github.com/cometbft/cometbft/privval"
 	"github.com/stretchr/testify/require"
-	"github.com/tendermint/tendermint/config"
 )
 
 func TestExportGenesisFileWithTime(t *testing.T) {
@@ -27,7 +26,7 @@ func TestInitializeNodeValidatorFilesFromMnemonic(t *testing.T) {
 
 	cfg := config.TestConfig()
 	cfg.RootDir = t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(cfg.RootDir, "config"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(cfg.RootDir, "config"), 0o755))
 
 	tests := []struct {
 		name     string
@@ -52,7 +51,6 @@ func TestInitializeNodeValidatorFilesFromMnemonic(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			_, _, err := InitializeNodeValidatorFilesFromMnemonic(cfg, tt.mnemonic)
 
@@ -62,9 +60,9 @@ func TestInitializeNodeValidatorFilesFromMnemonic(t *testing.T) {
 				require.NoError(t, err)
 
 				if tt.mnemonic != "" {
-					actualPVFile, _ := privval.LoadFilePV(cfg.PrivValidator.KeyFile(), cfg.PrivValidator.StateFile())
+					actualPVFile := privval.LoadFilePV(cfg.PrivValidatorKeyFile(), cfg.PrivValidatorStateFile())
 					expectedPrivateKey := tmed25519.GenPrivKeyFromSecret([]byte(tt.mnemonic))
-					expectedFile := privval.NewFilePV(expectedPrivateKey, cfg.PrivValidator.KeyFile(), cfg.PrivValidator.StateFile())
+					expectedFile := privval.NewFilePV(expectedPrivateKey, cfg.PrivValidatorKeyFile(), cfg.PrivValidatorStateFile())
 					require.Equal(t, expectedFile, actualPVFile)
 				}
 			}

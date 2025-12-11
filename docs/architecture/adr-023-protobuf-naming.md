@@ -2,8 +2,8 @@
 
 ## Changelog
 
-- 2020 April 27: Initial Draft
-- 2020 August 5: Update guidelines
+* 2020 April 27: Initial Draft
+* 2020 August 5: Update guidelines
 
 ## Status
 
@@ -70,7 +70,7 @@ Further guidelines to be described below.
 Names should be descriptive enough to convey their meaning and distinguish
 them from other names.
 
-Given that we are using fully-qualifed names within
+Given that we are using fully-qualified names within
 `google.protobuf.Any` as well as within gRPC query routes, we should aim to
 keep names concise, without going overboard. The general rule of thumb should
 be if a shorter name would convey more or else the same thing, pick the shorter
@@ -117,7 +117,7 @@ Instead of breaking things, we should make every effort to evolve schemas rather
 to prevent such breakage.
 
 With that in mind, different stable versions (i.e. `v1` or `v2`) of a package should more or less be considered
-different packages and this should be last resort approach for upgrading protobuf schemas. Scenarios where creating
+different packages and this should be a last resort approach for upgrading protobuf schemas. Scenarios where creating
 a `v2` may make sense are:
 
 * we want to create a new module with similar functionality to an existing module and adding `v2` is the most natural
@@ -132,17 +132,17 @@ The following guidelines are recommended for marking packages as alpha or beta:
 
 * marking something as `alpha` or `beta` should be a last resort and just putting something in the
 stable package (i.e. `v1` or `v2`) should be preferred
-* a package *should* be marked as `alpha` *if and only if* there are active discussions to remove
+* a package _should_ be marked as `alpha` _if and only if_ there are active discussions to remove
 or significantly alter the package in the near future
-* a package *should* be marked as `beta` *if and only if* there is an active discussion to
-significantly refactor/rework the functionality in the near future but not remove it
-* modules *can and should* have types in both stable (i.e. `v1` or `v2`) and unstable (`alpha` or `beta`) packages.
+* a package _should_ be marked as `beta` _if and only if_ there is an active discussion to
+significantly refactor/rework the functionality in the near future but do not remove it
+* modules _can and should_ have types in both stable (i.e. `v1` or `v2`) and unstable (`alpha` or `beta`) packages.
 
-*`alpha` and `beta` should not be used to avoid responsibility for maintaining compatibility.*
+_`alpha` and `beta` should not be used to avoid responsibility for maintaining compatibility._
 Whenever code is released into the wild, especially on a blockchain, there is a high cost to changing things. In some
 cases, for instance with immutable smart contracts, a breaking change may be impossible to fix.
 
-When marking something as `alpha` or `beta`, maintainers should ask the questions:
+When marking something as `alpha` or `beta`, maintainers should ask the following questions:
 
 * what is the cost of asking others to change their code vs the benefit of us maintaining the optionality to change it?
 * what is the plan for moving this to `v1` and how will that affect users?
@@ -174,7 +174,7 @@ or `.v3`.
 
 #### Adopt a short, unique top-level package name
 
-Top-level packages should adopt a short name that is known to not collide with
+Top-level packages should adopt a short name that is known not to collide with
 other names in common usage within the Cosmos ecosystem. In the near future, a
 registry should be created to reserve and index top-level package names used
 within the Cosmos ecosystem. Because the Cosmos SDK is intended to provide
@@ -191,7 +191,7 @@ is used in source code to denote modules, this is often unnecessary for .proto
 files as modules are the primary thing sub-packages are used for. Only items which
 are known to be used infrequently should have deep sub-package depths.
 
-For the Cosmos SDK, it is recommended that that we simply write `cosmos.bank`,
+For the Cosmos SDK, it is recommended that we simply write `cosmos.bank`,
 `cosmos.gov`, etc. rather than `cosmos.x.bank`. In practice, most non-module
 types can go straight in the `cosmos` package or we can introduce a
 `cosmos.base` package if needed. Note that this naming _will not_ change
@@ -200,7 +200,7 @@ go package names, i.e. the `cosmos.bank` protobuf package will still live in
 
 ### Message Naming
 
-Message type names should be as concise possible without losing clarity. `sdk.Msg`
+Message type names should be as concise as possible without losing clarity. `sdk.Msg`
 types which are used in transactions will retain the `Msg` prefix as that provides
 helpful context.
 

@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/btcsuite/btcd/btcec"
+	secp "github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 
 // NewParams creates a BIP 44 parameter object from the params:
@@ -87,7 +87,7 @@ func NewParamsFromPath(path string) (*BIP44Params, error) {
 			fmt.Errorf("fourth and fifth field in path must not be hardened (ie. not contain the suffix ', got %s and %s", spl[3], spl[4])
 	}
 
-	if !(change == 0 || change == 1) {
+	if change != 0 && change != 1 {
 		return nil, fmt.Errorf("change field can only be 0 or 1")
 	}
 
@@ -155,12 +155,12 @@ func (p BIP44Params) String() string {
 		p.AddressIndex)
 }
 
-// ComputeMastersFromSeed returns the master secret key's, and chain code.
-func ComputeMastersFromSeed(seed []byte) (secret [32]byte, chainCode [32]byte) {
+// ComputeMastersFromSeed returns the master secret key, and chain code.
+func ComputeMastersFromSeed(seed []byte) (secret, chainCode [32]byte) {
 	curveIdentifier := []byte("Bitcoin seed")
 	secret, chainCode = i64(curveIdentifier, seed)
 
-	return
+	return secret, chainCode
 }
 
 // DerivePrivateKeyForPath derives the private key by following the BIP 32/44 path from privKeyBytes,
@@ -215,8 +215,8 @@ func DerivePrivateKeyForPath(privKeyBytes, chainCode [32]byte, path string) ([]b
 // If harden is true, the derivation is 'hardened'.
 // It returns the new private key and new chain code.
 // For more information on hardened keys see:
-//  - https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki
-func derivePrivateKey(privKeyBytes [32]byte, chainCode [32]byte, index uint32, harden bool) ([32]byte, [32]byte) {
+//   - https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki
+func derivePrivateKey(privKeyBytes, chainCode [32]byte, index uint32, harden bool) ([32]byte, [32]byte) {
 	var data []byte
 
 	if harden {
@@ -225,7 +225,7 @@ func derivePrivateKey(privKeyBytes [32]byte, chainCode [32]byte, index uint32, h
 		data = append([]byte{byte(0)}, privKeyBytes[:]...)
 	} else {
 		// this can't return an error:
-		_, ecPub := btcec.PrivKeyFromBytes(btcec.S256(), privKeyBytes[:])
+		ecPub := secp.PrivKeyFromBytes(privKeyBytes[:]).PubKey()
 		pubkeyBytes := ecPub.SerializeCompressed()
 		data = pubkeyBytes
 
@@ -244,11 +244,11 @@ func derivePrivateKey(privKeyBytes [32]byte, chainCode [32]byte, index uint32, h
 }
 
 // modular big endian addition
-func addScalars(a []byte, b []byte) [32]byte {
+func addScalars(a, b []byte) [32]byte {
 	aInt := new(big.Int).SetBytes(a)
 	bInt := new(big.Int).SetBytes(b)
 	sInt := new(big.Int).Add(aInt, bInt)
-	x := sInt.Mod(sInt, btcec.S256().N).Bytes()
+	x := sInt.Mod(sInt, secp.S256().N).Bytes()
 	x2 := [32]byte{}
 	copy(x2[32-len(x):], x)
 
@@ -262,8 +262,8 @@ func uint32ToBytes(i uint32) []byte {
 	return b[:]
 }
 
-// i64 returns the two halfs of the SHA512 HMAC of key and data.
-func i64(key []byte, data []byte) (il [32]byte, ir [32]byte) {
+// i64 returns the two halves of the SHA512 HMAC of key and data.
+func i64(key, data []byte) (il, ir [32]byte) {
 	mac := hmac.New(sha512.New, key)
 	// sha512 does not err
 	_, _ = mac.Write(data)
@@ -272,7 +272,7 @@ func i64(key []byte, data []byte) (il [32]byte, ir [32]byte) {
 	copy(il[:], I[:32])
 	copy(ir[:], I[32:])
 
-	return
+	return il, ir
 }
 
 // CreateHDPath returns BIP 44 object from account and index parameters.

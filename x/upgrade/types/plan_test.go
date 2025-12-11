@@ -6,11 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tendermint/tendermint/libs/log"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/upgrade/types"
 )
 
@@ -33,18 +30,17 @@ func TestPlanString(t *testing.T) {
 				Info:   "https://foo.bar/baz",
 				Height: 7890,
 			},
-			expect: "Upgrade Plan\n  Name: by height\n  height: 7890\n  Info: https://foo.bar/baz.",
+			expect: "name:\"by height\" time:<seconds:-62135596800 > height:7890 info:\"https://foo.bar/baz\" ",
 		},
 		"neither": {
 			p: types.Plan{
 				Name: "almost-empty",
 			},
-			expect: "Upgrade Plan\n  Name: almost-empty\n  height: 0\n  Info: .",
+			expect: "name:\"almost-empty\" time:<seconds:-62135596800 > ",
 		},
 	}
 
 	for name, tc := range cases {
-		tc := tc // copy to local variable for scopelint
 		t.Run(name, func(t *testing.T) {
 			s := tc.p.String()
 			require.Equal(t, tc.expect, s)
@@ -95,7 +91,6 @@ func TestPlanValid(t *testing.T) {
 	}
 
 	for name, tc := range cases {
-		tc := tc // copy to local variable for scopelint
 		t.Run(name, func(t *testing.T) {
 			err := tc.p.ValidateBasic()
 			if tc.valid {
@@ -105,7 +100,6 @@ func TestPlanValid(t *testing.T) {
 			}
 		})
 	}
-
 }
 
 func TestShouldExecute(t *testing.T) {
@@ -115,7 +109,6 @@ func TestShouldExecute(t *testing.T) {
 		ctxHeight int64
 		expected  bool
 	}{
-
 		"past height": {
 			p: types.Plan{
 				Name:   "do-good",
@@ -146,10 +139,8 @@ func TestShouldExecute(t *testing.T) {
 	}
 
 	for name, tc := range cases {
-		tc := tc // copy to local variable for scopelint
 		t.Run(name, func(t *testing.T) {
-			ctx := sdk.NewContext(nil, tmproto.Header{Height: tc.ctxHeight, Time: tc.ctxTime}, false, log.NewNopLogger())
-			should := tc.p.ShouldExecute(ctx)
+			should := tc.p.ShouldExecute(tc.ctxHeight)
 			assert.Equal(t, tc.expected, should)
 		})
 	}

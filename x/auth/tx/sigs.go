@@ -89,14 +89,14 @@ func ModeInfoAndSigToSignatureData(modeInfo *tx.ModeInfo, sig []byte) (signing.S
 	}
 }
 
-// decodeMultisignatures safely decodes the the raw bytes as a MultiSignature protobuf message
+// decodeMultisignatures safely decodes the raw bytes as a MultiSignature protobuf message
 func decodeMultisignatures(bz []byte) ([][]byte, error) {
 	multisig := cryptotypes.MultiSignature{}
 	err := multisig.Unmarshal(bz)
 	if err != nil {
 		return nil, err
 	}
-	// NOTE: it is import to reject multi-signatures that contain unrecognized fields because this is an exploitable
+	// NOTE: it is important to reject multi-signatures that contain unrecognized fields because this is an exploitable
 	// malleability in the protobuf message. Basically an attacker could bloat a MultiSignature message with unknown
 	// fields, thus bloating the transaction and causing it to fail.
 	if len(multisig.XXX_unrecognized) > 0 {
